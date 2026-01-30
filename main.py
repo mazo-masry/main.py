@@ -1,8 +1,7 @@
 import os
-import time
 import random
-import requests
 import asyncio
+import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -21,40 +20,46 @@ HEADERS = {
 }
 
 def generate_domain():
-    name = random.choice(WORDS) + random.choice(WORDS)
-    return name[:10].lower() + ".com"
+    return (random.choice(WORDS) + random.choice(WORDS))[:10].lower() + ".com"
 
 def check_godaddy(domain):
-    url = f"https://api.godaddy.com/v1/domains/available?domain={domain}"
-    r = requests.get(url, headers=HEADERS, timeout=10)
-    data = r.json()
-    return data.get("available", False)
+    url = "https://api.godaddy.com/v1/domains/available"
+    params = {"domain": domain}
+    r = requests.get(url, headers=HEADERS, params=params, timeout=10)
+    return r.status_code, r.text
 
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id, "🔍 بدء فحص 100 دومين من GoDaddy")
-
-    results = []
+    await context.bot.send_message(chat_id, "🚀 بدء الفحص (100 دومين)\n⏱ ثانية بين كل دومين")
 
     for i in range(1, 101):
         domain = generate_domain()
+
         try:
-            available = check_godaddy(domain)
-            status = "✅ AVAILABLE" if available else "❌ TAKEN"
+            status_code, response = await asyncio.to_thread(check_godaddy, domain)
+
+            if status_code == 200:
+                data = eval(response)
+                available = data.get("available", False)
+                msg = "✅ AVAILABLE" if available else "❌ TAKEN"
+            else:
+                msg = f"⚠️ API ERROR ({status_code})"
+
         except Exception as e:
-            status = f"⚠️ ERROR"
+            msg = f"🔥 EXCEPTION: {str(e)}"
 
-        line = f"{i}. {domain} → {status}"
-        print(line)
-        results.append(line)
+        text = f"""
+🔎 فحص #{i}
+🌐 {domain}
+📡 النتيجة: {msg}
+        """
 
-        if i % 10 == 0:
-            await context.bot.send_message(chat_id, "\n".join(results))
-            results.clear()
+        print(text)
+        await context.bot.send_message(chat_id, text)
 
-        await asyncio.sleep(1)  # ثانية بين كل دومين
+        await asyncio.sleep(1)
 
-    await context.bot.send_message(chat_id, "✅ انتهى الفحص")
+    await context.bot.send_message(chat_id, "✅ انتهى الفحص بالكامل")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
