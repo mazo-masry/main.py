@@ -1,52 +1,65 @@
 import os
+import time
 import random
-import socket
+import requests
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+GD_KEY = os.getenv("GODADDY_KEY")
+GD_SECRET = os.getenv("GODADDY_SECRET")
 
 WORDS = [
-    "alpha", "nova", "pixel", "logic", "cloud",
-    "boost", "spark", "trend", "prime", "swift"
+    "alpha","nova","zen","byte","cloud","prime",
+    "spark","orbit","pixel","logic","swift","core"
 ]
 
+HEADERS = {
+    "Authorization": f"sso-key {GD_KEY}:{GD_SECRET}",
+    "Accept": "application/json"
+}
+
 def generate_domain():
-    word = random.choice(WORDS)
-    length = random.choice([5, 6])
-    return word[:length] + ".com"
+    name = random.choice(WORDS) + random.choice(WORDS)
+    return name[:10].lower() + ".com"
 
-def check_domain(domain):
-    try:
-        socket.gethostbyname(domain)
-        return "❌ TAKEN"
-    except:
-        return "✅ AVAILABLE"
+def check_godaddy(domain):
+    url = f"https://api.godaddy.com/v1/domains/available?domain={domain}"
+    r = requests.get(url, headers=HEADERS, timeout=10)
+    data = r.json()
+    return data.get("available", False)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id, "🚀 بدأ توليد وفحص 1000 دومين")
+    await context.bot.send_message(chat_id, "🔍 بدء فحص 100 دومين من GoDaddy")
 
-    sent = []
-    for i in range(1, 1001):
+    results = []
+
+    for i in range(1, 101):
         domain = generate_domain()
-        status = check_domain(domain)
-        msg = f"{i}. {domain} → {status}"
-        print(msg)
-        sent.append(msg)
+        try:
+            available = check_godaddy(domain)
+            status = "✅ AVAILABLE" if available else "❌ TAKEN"
+        except Exception as e:
+            status = f"⚠️ ERROR"
+
+        line = f"{i}. {domain} → {status}"
+        print(line)
+        results.append(line)
 
         if i % 10 == 0:
-            await context.bot.send_message(chat_id, "\n".join(sent))
-            sent.clear()
-            await asyncio.sleep(1)
+            await context.bot.send_message(chat_id, "\n".join(results))
+            results.clear()
+
+        await asyncio.sleep(1)  # ثانية بين كل دومين
 
     await context.bot.send_message(chat_id, "✅ انتهى الفحص")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    print("🤖 BOT STARTED")
+    app.add_handler(CommandHandler("check", check))
+    print("🤖 BOT IS RUNNING")
     app.run_polling()
 
 if __name__ == "__main__":
