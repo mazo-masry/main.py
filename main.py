@@ -1,89 +1,88 @@
-import os
 import asyncio
-import requests
+import whois
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GD_KEY = os.getenv("GODADDY_KEY")
-GD_SECRET = os.getenv("GODADDY_SECRET")
+# =====================
+BOT_TOKEN = "8166138523:AAGTRyw29i8lvojIsyrCU3tVGWMRAteblkU"
+# =====================
 
-# كلمات حقيقية قصيرة (5–6 حروف)
-DOMAINS = [
-    "prime","logic","orbit","pixel","spark","swift",
-    "alpha","nova","corex","zenix","clixo","bytex",
-    "netly","webly","hosta","crypt","chain","block"
+WORDS = [
+    "alpha","bravo","delta","novex","orbit","pixel","logic","swift",
+    "vortex","nexus","prime","zenix","crypt","cloud","spark","pulse",
+    "flare","quant","block","stack","corex","media","arena","brand"
 ]
 
-HEADERS = {
-    "Authorization": f"sso-key {GD_KEY}:{GD_SECRET}",
-    "Accept": "application/json"
-}
+CHECK_LIMIT = 100
+DELAY = 1  # ثانية بين كل فحص
 
-def check_godaddy(domain):
-    url = "https://api.godaddy.com/v1/domains/available"
-    r = requests.get(
-        url,
-        headers=HEADERS,
-        params={"domain": domain},
-        timeout=15
-    )
-    return r.json().get("available", False)
+def generate_domains():
+    domains = []
+    for w in WORDS:
+        if 5 <= len(w) <= 6:
+            domains.append(f"{w}.com")
+    return domains[:CHECK_LIMIT]
+
+def is_available(domain):
+    try:
+        data = whois.whois(domain)
+        return data.domain_name is None
+    except:
+        return True  # غالباً متاح لو WHOIS فشل
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Domain Hunter شغال\n"
-        "اكتب /check لبدء الفحص"
+        "🤖 Domain Hunter Bot\n"
+        "استخدم /hunt لبدء فحص الدومينات"
     )
 
-async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def hunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    domains = generate_domains()
 
-    progress_msg = await context.bot.send_message(
+    await context.bot.send_message(
         chat_id,
-        "🔍 بدء فحص الدومينات من GoDaddy"
+        f"🔍 بدء فحص {len(domains)} دومين\n⏳ بهدوء لتفادي أي حظر"
     )
 
-    checked = 0
-    log = []
+    count = 0
 
-    for name in DOMAINS[:100]:
-        domain = name + ".com"
-        checked += 1
-
-        try:
-            available = check_godaddy(domain)
-            status = "✅ AVAILABLE" if available else "❌ TAKEN"
-        except Exception:
-            status = "⚠️ ERROR"
-
-        line = f"{checked}. {domain} → {status}"
-        print(line)
-        log.append(line)
-
-        # 👑 لو متاح → رسالة فورية لوحدها
-        if status.startswith("✅"):
-            await context.bot.send_message(
-                chat_id,
-                f"🔥 DOMAIN AVAILABLE 🔥\n\n{domain}"
-            )
-
-        # تحديث رسالة المتابعة
-        await progress_msg.edit_text(
-            "🔍 فحص جاري...\n\n" +
-            "\n".join(log[-10:]) +
-            f"\n\n⏱️ {checked}/100"
+    for domain in domains:
+        count += 1
+        await context.bot.send_message(
+            chat_id,
+            f"⏳ {count}/{len(domains)}\n🔎 فحص: {domain}"
         )
 
-        await asyncio.sleep(1)
+        try:
+            available = is_available(domain)
 
-    await context.bot.send_message(chat_id, "✅ انتهى الفحص")
+            if available:
+                await context.bot.send_message(
+                    chat_id,
+                    f"🟢 AVAILABLE DOMAIN 🔥\n{domain}"
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id,
+                    f"❌ TAKEN: {domain}"
+                )
+
+        except Exception as e:
+            await context.bot.send_message(
+                chat_id,
+                f"⚠️ ERROR مع {domain}\n{str(e)}"
+            )
+
+        await asyncio.sleep(DELAY)
+
+    await context.bot.send_message(chat_id, "✅ انتهى الفحص بالكامل")
 
 def main():
-    print("🤖 BOT STARTED")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("check", check))
+    app.add_handler(CommandHandler("hunt", hunt))
+    print("🤖 BOT IS RUNNING")
     app.run_polling()
 
 if __name__ == "__main__":
