@@ -1,85 +1,83 @@
 import os
-import time
 import random
+import asyncio
 import requests
-from telegram.ext import Updater, CommandHandler
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
+# ========= CONFIG =========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# كلمات مفهومة 5-6 حروف
-WORDS = [
-    "brand","smart","cloud","quick","media","prime","trust","pixel",
-    "fresh","logic","spark","boost","trend","scope","alpha","nexus",
-    "vivid","urban","solid","clean","sharp","magic","happy","super"
+NC_API_USER = os.getenv("NC_API_USER")
+NC_API_KEY = os.getenv("NC_API_KEY")
+NC_USERNAME = os.getenv("NC_USERNAME")
+NC_CLIENT_IP = os.getenv("NC_CLIENT_IP")
+
+DOMAINS_PER_RUN = 1000
+DELAY = 0.4
+TLDS = ["com"]
+
+BASE_WORDS = [
+    "brand","smart","cloud","quick","media","prime","trust","pixel","fresh",
+    "logic","spark","boost","trend","scope","alpha","delta","nexus","vivid",
+    "eagle","tiger","urban","solid","clean","sharp","magic","happy","super"
 ]
 
-TLDS = ["com"]
-CHECK_LIMIT = 50        # عدد الدومينات في كل تشغيل
-DELAY = 0.7             # سرعة الفحص (آمن)
-
-def is_domain_available(domain):
-    url = f"https://api.domainsdb.info/v1/domains/search?domain={domain}"
+# ========= DOMAIN CHECK =========
+def check_namecheap(domain):
+    url = "https://api.namecheap.com/xml.response"
+    params = {
+        "ApiUser": NC_API_USER,
+        "ApiKey": NC_API_KEY,
+        "UserName": NC_USERNAME,
+        "ClientIp": NC_CLIENT_IP,
+        "Command": "namecheap.domains.check",
+        "DomainList": domain
+    }
     try:
-        r = requests.get(url, timeout=10)
-        data = r.json()
-        return data.get("total", 0) == 0
+        r = requests.get(url, params=params, timeout=10)
+        return 'Available="true"' in r.text
     except:
         return False
 
-def start(update, context):
-    chat_id = update.message.chat_id
-    bot = context.bot
+# ========= BOT =========
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🚀 بدء الفحص...")
 
-    bot.send_message(chat_id, "🚀 بدء توليد وفحص الدومينات...\n")
+    words = list(set(w for w in BASE_WORDS if 5 <= len(w) <= 6))
+    random.shuffle(words)
 
-    used = set()
-    count = 0
+    checked = 0
     available = []
 
-    random.shuffle(WORDS)
+    for word in words:
+        domain = f"{word}.com"
+        checked += 1
 
-    for word in WORDS:
-        if count >= CHECK_LIMIT:
+        is_free = check_namecheap(domain)
+
+        await update.message.reply_text(
+            f"🔎 [{checked}/{DOMAINS_PER_RUN}] {domain} → {'✅ AVAILABLE' if is_free else '❌ TAKEN'}"
+        )
+
+        if is_free:
+            available.append(domain)
+
+        await asyncio.sleep(DELAY)
+
+        if checked >= DOMAINS_PER_RUN:
             break
 
-        if not (5 <= len(word) <= 6):
-            continue
-
-        domain = f"{word}.com"
-        if domain in used:
-            continue
-
-        used.add(domain)
-        count += 1
-
-        bot.send_message(chat_id, f"🔍 فحص: {domain}")
-        time.sleep(0.3)
-
-        free = is_domain_available(domain)
-
-        if free:
-            bot.send_message(chat_id, f"✅ AVAILABLE: {domain}")
-            available.append(domain)
-        else:
-            bot.send_message(chat_id, f"❌ TAKEN: {domain}")
-
-        time.sleep(DELAY)
-
     if available:
-        bot.send_message(
-            chat_id,
-            "🎯 الدومينات المتاحة:\n\n" + "\n".join(available)
+        await update.message.reply_text(
+            "🎯 المتاح:\n\n" + "\n".join(available)
         )
     else:
-        bot.send_message(chat_id, "😕 مفيش ولا دومين متاح المرة دي")
+        await update.message.reply_text("😕 مفيش دومينات متاحة")
 
-def main():
-    print("BOT STARTING...")
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    updater.start_polling()
-    updater.idle()
-
+# ========= RUN =========
 if __name__ == "__main__":
-    main()
+    print("BOT STARTING...")
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.run_polling()
