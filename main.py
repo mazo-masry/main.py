@@ -1,87 +1,54 @@
+import os
 import asyncio
 import whois
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# =====================
-BOT_TOKEN = "8166138523:AAGTRyw29i8lvojIsyrCU3tVGWMRAteblkU"
-# =====================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-WORDS = [
-    "alpha","bravo","delta","novex","orbit","pixel","logic","swift",
-    "vortex","nexus","prime","zenix","crypt","cloud","spark","pulse",
-    "flare","quant","block","stack","corex","media","arena","brand"
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is missing")
+
+DOMAINS = [
+    "novex.com", "zenly.com", "crypta.com",
+    "bytex.com", "corex.com", "nexor.com",
+    "fluxy.com", "datix.com", "webly.com"
 ]
-
-CHECK_LIMIT = 100
-DELAY = 1  # ثانية بين كل فحص
-
-def generate_domains():
-    domains = []
-    for w in WORDS:
-        if 5 <= len(w) <= 6:
-            domains.append(f"{w}.com")
-    return domains[:CHECK_LIMIT]
-
-def is_available(domain):
-    try:
-        data = whois.whois(domain)
-        return data.domain_name is None
-    except:
-        return True  # غالباً متاح لو WHOIS فشل
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Domain Hunter Bot\n"
-        "استخدم /hunt لبدء فحص الدومينات"
+        "🤖 Domain Hunter شغال\n"
+        "اكتب /hunt لبدء الفحص"
     )
 
 async def hunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    domains = generate_domains()
-
-    await context.bot.send_message(
-        chat_id,
-        f"🔍 بدء فحص {len(domains)} دومين\n⏳ بهدوء لتفادي أي حظر"
-    )
+    await update.message.reply_text("🔍 بدء الفحص...")
 
     count = 0
-
-    for domain in domains:
+    for domain in DOMAINS:
         count += 1
-        await context.bot.send_message(
-            chat_id,
-            f"⏳ {count}/{len(domains)}\n🔎 فحص: {domain}"
-        )
+        await update.message.reply_text(f"⏳ {count}/{len(DOMAINS)}\n{domain}")
 
         try:
-            available = is_available(domain)
-
-            if available:
-                await context.bot.send_message(
-                    chat_id,
-                    f"🟢 AVAILABLE DOMAIN 🔥\n{domain}"
+            w = whois.whois(domain)
+            if not w.domain_name:
+                await update.message.reply_text(
+                    f"🟢 AVAILABLE 🔥\n{domain}"
                 )
-            else:
-                await context.bot.send_message(
-                    chat_id,
-                    f"❌ TAKEN: {domain}"
-                )
-
-        except Exception as e:
-            await context.bot.send_message(
-                chat_id,
-                f"⚠️ ERROR مع {domain}\n{str(e)}"
+        except Exception:
+            await update.message.reply_text(
+                f"🟢 AVAILABLE 🔥\n{domain}"
             )
 
-        await asyncio.sleep(DELAY)
+        await asyncio.sleep(1)
 
-    await context.bot.send_message(chat_id, "✅ انتهى الفحص بالكامل")
+    await update.message.reply_text("✅ انتهى الفحص")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("hunt", hunt))
+
     print("🤖 BOT IS RUNNING")
     app.run_polling()
 
