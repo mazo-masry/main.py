@@ -1,85 +1,55 @@
 import os
-import time
 import random
-import requests
-from telegram.ext import Updater, CommandHandler
+import time
+import socket
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# كلمات مفهومة 5-6 حروف
 WORDS = [
-    "brand","smart","cloud","quick","media","prime","trust","pixel",
-    "fresh","logic","spark","boost","trend","scope","alpha","nexus",
-    "vivid","urban","solid","clean","sharp","magic","happy","super"
+    "cloud", "pixel", "nova", "logic", "alpha", "omega",
+    "boost", "smart", "spark", "trend", "prime", "swift"
 ]
 
-TLDS = ["com"]
-CHECK_LIMIT = 50        # عدد الدومينات في كل تشغيل
-DELAY = 0.7             # سرعة الفحص (آمن)
+def generate_domain():
+    word = random.choice(WORDS)
+    if len(word) < 5:
+        word += random.choice(["ly", "it", "io"])
+    return f"{word[:6]}.com"
 
 def is_domain_available(domain):
-    url = f"https://api.domainsdb.info/v1/domains/search?domain={domain}"
     try:
-        r = requests.get(url, timeout=10)
-        data = r.json()
-        return data.get("total", 0) == 0
-    except:
-        return False
+        socket.gethostbyname(domain)
+        return False  # TAKEN
+    except socket.gaierror:
+        return True   # AVAILABLE
 
-def start(update, context):
-    chat_id = update.message.chat_id
-    bot = context.bot
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await context.bot.send_message(chat_id, "🚀 بدء توليد وفحص 1000 دومين...\n")
 
-    bot.send_message(chat_id, "🚀 بدء توليد وفحص الدومينات...\n")
+    for i in range(1, 1001):
+        domain = generate_domain()
+        available = is_domain_available(domain)
 
-    used = set()
-    count = 0
-    available = []
-
-    random.shuffle(WORDS)
-
-    for word in WORDS:
-        if count >= CHECK_LIMIT:
-            break
-
-        if not (5 <= len(word) <= 6):
-            continue
-
-        domain = f"{word}.com"
-        if domain in used:
-            continue
-
-        used.add(domain)
-        count += 1
-
-        bot.send_message(chat_id, f"🔍 فحص: {domain}")
-        time.sleep(0.3)
-
-        free = is_domain_available(domain)
-
-        if free:
-            bot.send_message(chat_id, f"✅ AVAILABLE: {domain}")
-            available.append(domain)
-        else:
-            bot.send_message(chat_id, f"❌ TAKEN: {domain}")
-
-        time.sleep(DELAY)
-
-    if available:
-        bot.send_message(
+        status = "✅ AVAILABLE" if available else "❌ TAKEN"
+        await context.bot.send_message(
             chat_id,
-            "🎯 الدومينات المتاحة:\n\n" + "\n".join(available)
+            f"[{i}/1000] 🔍 {domain} → {status}"
         )
-    else:
-        bot.send_message(chat_id, "😕 مفيش ولا دومين متاح المرة دي")
+
+        time.sleep(0.7)  # سرعة متوسطة (لا سريع ولا بطيء)
+
+    await context.bot.send_message(chat_id, "🏁 انتهى الفحص.")
 
 def main():
-    print("BOT STARTING...")
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    updater.start_polling()
-    updater.idle()
+    if not BOT_TOKEN:
+        raise Exception("BOT_TOKEN مش متضاف في Variables")
+
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
