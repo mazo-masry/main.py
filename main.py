@@ -1,7 +1,7 @@
 import os
 import random
-import time
 import socket
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -25,23 +25,20 @@ def check(domain):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id, "🚀 بدأ الفحص (1000 دومين)")
+    await context.bot.send_message(chat_id, "🚀 بدأ فحص 1000 دومين")
 
-    report = []
+    batch = []
     for i in range(1, 1001):
         d = gen_domain()
         s = check(d)
         line = f"{i}. {d} → {s}"
-        print(line)  # يظهر في Logs
-        report.append(line)
+        print(line)
+        batch.append(line)
 
         if i % 10 == 0:
-            await context.bot.send_message(
-                chat_id,
-                "\n".join(report)
-            )
-            report.clear()
-            time.sleep(1)  # يمنع flood
+            await context.bot.send_message(chat_id, "\n".join(batch))
+            batch.clear()
+            await asyncio.sleep(1)  # ✅ الحل هنا
 
     await context.bot.send_message(chat_id, "✅ انتهى الفحص")
 
