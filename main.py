@@ -3,53 +3,48 @@ import random
 import time
 import socket
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 
 WORDS = [
-    "cloud", "pixel", "nova", "logic", "alpha", "omega",
-    "boost", "smart", "spark", "trend", "prime", "swift"
+    "alpha", "nova", "pixel", "logic", "cloud",
+    "boost", "spark", "trend", "prime", "swift"
 ]
 
-def generate_domain():
-    word = random.choice(WORDS)
-    if len(word) < 5:
-        word += random.choice(["ly", "it", "io"])
-    return f"{word[:6]}.com"
+def gen_domain():
+    w = random.choice(WORDS)
+    return f"{w[:6]}.com"
 
-def is_domain_available(domain):
+def check(domain):
     try:
         socket.gethostbyname(domain)
-        return False  # TAKEN
-    except socket.gaierror:
-        return True   # AVAILABLE
+        return "TAKEN"
+    except:
+        return "AVAILABLE"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id, "🚀 بدء توليد وفحص 1000 دومين...\n")
+    await context.bot.send_message(chat_id, "🚀 بدأ الفحص (1000 دومين)")
 
+    report = []
     for i in range(1, 1001):
-        domain = generate_domain()
-        available = is_domain_available(domain)
+        d = gen_domain()
+        s = check(d)
+        line = f"{i}. {d} → {s}"
+        print(line)  # يظهر في Logs
+        report.append(line)
 
-        status = "✅ AVAILABLE" if available else "❌ TAKEN"
-        await context.bot.send_message(
-            chat_id,
-            f"[{i}/1000] 🔍 {domain} → {status}"
-        )
+        if i % 10 == 0:
+            await context.bot.send_message(
+                chat_id,
+                "\n".join(report)
+            )
+            report.clear()
+            time.sleep(1)  # يمنع flood
 
-        time.sleep(0.7)  # سرعة متوسطة (لا سريع ولا بطيء)
+    await context.bot.send_message(chat_id, "✅ انتهى الفحص")
 
-    await context.bot.send_message(chat_id, "🏁 انتهى الفحص.")
-
-def main():
-    if not BOT_TOKEN:
-        raise Exception("BOT_TOKEN مش متضاف في Variables")
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+app = Application.builder().token(TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.run_polling()
