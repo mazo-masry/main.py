@@ -1,80 +1,96 @@
-import asyncio
+import os
+import time
 import random
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import os
 
-BOT_TOKEN = os.getenv("8166138523:AAGTRyw29i8lvojIsyrCU3tVGWMRAteblkU")
-GD_KEY = os.getenv("e4hKswXmobhm_RBV2EMdJJabknhTzWgc9w7")
-GD_SECRET = os.getenv("QZeRQUp2RVL2RmSHL2iodi")
+# ========= CONFIG =========
+BOT_TOKEN = os.getenv("BOT_TOKEN") or "8166138523:AAGTRyw29i8lvojIsyrCU3tVGWMRAteblkU"
 
-HEADERS = {
-    "Authorization": f"sso-key {GD_KEY}:{GD_SECRET}",
-    "Accept": "application/json"
-}
+# Namecheap API
+NC_API_USER = os.getenv("NC_API_USER") or "YOUR_NAMECHEAP_USER"
+NC_API_KEY  = os.getenv("NC_API_KEY") or "YOUR_NAMECHEAP_API_KEY"
+NC_USERNAME = os.getenv("NC_USERNAME") or "YOUR_NAMECHEAP_USERNAME"
+NC_CLIENT_IP = os.getenv("NC_CLIENT_IP") or "YOUR_SERVER_IP"  # مهم جدًا
 
-WORDS = [
-    "brand","trust","money","power","prime","smart","logic",
-    "alpha","pixel","boost","value","spark","solid","quick",
-    "sharp","light","scope","vivid","frame","cloud"
+DOMAINS_PER_RUN = 1000
+DELAY_BETWEEN_CHECKS = 0.35  # لا سريع ولا بطيء
+TLDS = ["com"]  # نقدر نزود بعدين
+
+# ========= WORD SOURCE (مفهومة) =========
+BASE_WORDS = [
+    "brand","smart","cloud","quick","media","prime","trust","pixel","fresh",
+    "logic","spark","boost","trend","scope","alpha","delta","nexus","vivid",
+    "eagle","tiger","urban","solid","clean","sharp","magic","happy","super"
 ]
 
-TLD = "com"
-USED = set()
+def generate_words():
+    words = set()
+    while len(words) < DOMAINS_PER_RUN:
+        w = random.choice(BASE_WORDS)
+        if 5 <= len(w) <= 6:
+            words.add(w)
+    return list(words)
 
-# ---------------------------
-def generate_domain():
-    while True:
-        word = random.choice(WORDS)
-        if 5 <= len(word) <= 6:
-            domain = f"{word}.{TLD}"
-            if domain not in USED:
-                USED.add(domain)
-                return domain
+# ========= NAMECHEAP CHECK =========
+def check_namecheap(domain):
+    url = "https://api.namecheap.com/xml.response"
+    params = {
+        "ApiUser": NC_API_USER,
+        "ApiKey": NC_API_KEY,
+        "UserName": NC_USERNAME,
+        "ClientIp": NC_CLIENT_IP,
+        "Command": "namecheap.domains.check",
+        "DomainList": domain
+    }
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        return 'Available="true"' in r.text
+    except Exception:
+        return False
 
-# ---------------------------
-def check_godaddy(domain):
-    url = f"https://api.godaddy.com/v1/domains/available?domain={domain}"
-    r = requests.get(url, headers=HEADERS, timeout=8)
-    if r.status_code == 200:
-        return r.json().get("available", False)
-    return False
-
-# ---------------------------
+# ========= TELEGRAM =========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🐉 Domain Hunter BOT\n\n"
-        "🚀 بدء توليد + فحص 1000 دومين\n"
-        "🔍 المصدر: GoDaddy\n"
-    )
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🚀 بدء توليد وفحص الدومينات...\n⏳ شوية صبر")
 
-    found = 0
+    words = generate_words()
+    checked = 0
+    available = []
 
-    for i in range(1000):
-        domain = generate_domain()
+    for word in words:
+        for tld in TLDS:
+            domain = f"{word}.{tld}"
+            checked += 1
 
-        await update.message.reply_text(
-            f"🔍 [{i+1}/1000] Checking: {domain}"
-        )
+            is_free = check_namecheap(domain)
 
-        if check_godaddy(domain):
-            found += 1
-            await update.message.reply_text(
-                f"✅ AVAILABLE: {domain}"
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔎 [{checked}/{DOMAINS_PER_RUN}] {domain} → {'✅ AVAILABLE' if is_free else '❌ TAKEN'}"
             )
 
-        await asyncio.sleep(0.5)  # سرعة متوازنة
+            if is_free:
+                available.append(domain)
 
-    await update.message.reply_text(
-        f"🎯 انتهى الفحص\n"
-        f"✅ المتاح: {found}\n"
-        f"🔢 المفحوص: 1000"
-    )
+            time.sleep(DELAY_BETWEEN_CHECKS)
 
-# ---------------------------
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
+            if checked >= DOMAINS_PER_RUN:
+                break
+        if checked >= DOMAINS_PER_RUN:
+            break
 
-print("🤖 Bot is running...")
-app.run_polling()
+    if available:
+        msg = "🎯 الدومينات المتاحة:\n\n" + "\n".join(available)
+    else:
+        msg = "😕 مفيش دومينات متاحة في الجولة دي"
+
+    await context.bot.send_message(chat_id=chat_id, text=msg)
+
+# ========= RUN =========
+if __name__ == "__main__":
+    print("BOT STARTING...")
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.run_polling()
