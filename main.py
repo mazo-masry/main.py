@@ -1,5 +1,4 @@
 import os
-import random
 import asyncio
 import requests
 from telegram import Update
@@ -9,9 +8,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GD_KEY = os.getenv("GODADDY_KEY")
 GD_SECRET = os.getenv("GODADDY_SECRET")
 
-WORDS = [
-    "alpha","nova","zen","byte","cloud","prime",
-    "spark","orbit","pixel","logic","swift","core"
+# كلمات حقيقية قصيرة (5–6 حروف)
+DOMAINS = [
+    "prime","logic","orbit","pixel","spark","swift",
+    "alpha","nova","corex","zenix","clixo","bytex",
+    "netly","webly","hosta","crypt","chain","block"
 ]
 
 HEADERS = {
@@ -19,57 +20,67 @@ HEADERS = {
     "Accept": "application/json"
 }
 
-def generate_domain():
-    name = random.choice(WORDS) + random.choice(WORDS)
-    return name[:6].lower() + ".com"
-
 def check_godaddy(domain):
     url = "https://api.godaddy.com/v1/domains/available"
-    params = {"domain": domain}
-    r = requests.get(url, headers=HEADERS, params=params, timeout=15)
+    r = requests.get(
+        url,
+        headers=HEADERS,
+        params={"domain": domain},
+        timeout=15
+    )
     return r.json().get("available", False)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Domain Hunter جاهز\n"
-        "اكتب /check لبدء فحص 100 دومين"
+        "🤖 Domain Hunter شغال\n"
+        "اكتب /check لبدء الفحص"
     )
 
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    msg = await context.bot.send_message(
+    progress_msg = await context.bot.send_message(
         chat_id,
-        "🔍 بدء الفحص...\n"
-        "⏳ برجاء الانتظار"
+        "🔍 بدء فحص الدومينات من GoDaddy"
     )
 
+    checked = 0
     log = []
-    for i in range(1, 101):
-        domain = generate_domain()
+
+    for name in DOMAINS[:100]:
+        domain = name + ".com"
+        checked += 1
+
         try:
             available = check_godaddy(domain)
             status = "✅ AVAILABLE" if available else "❌ TAKEN"
-        except Exception as e:
+        except Exception:
             status = "⚠️ ERROR"
 
-        line = f"{i:03d}. {domain} → {status}"
+        line = f"{checked}. {domain} → {status}"
         print(line)
         log.append(line)
 
-        # تحديث نفس الرسالة (أهم جزء)
-        await msg.edit_text(
-            "🔍 فحص دومينات من GoDaddy\n\n" +
+        # 👑 لو متاح → رسالة فورية لوحدها
+        if status.startswith("✅"):
+            await context.bot.send_message(
+                chat_id,
+                f"🔥 DOMAIN AVAILABLE 🔥\n\n{domain}"
+            )
+
+        # تحديث رسالة المتابعة
+        await progress_msg.edit_text(
+            "🔍 فحص جاري...\n\n" +
             "\n".join(log[-10:]) +
-            f"\n\n⏱️ {i}/100"
+            f"\n\n⏱️ {checked}/100"
         )
 
-        await asyncio.sleep(1)  # ثانية بين كل فحص
+        await asyncio.sleep(1)
 
-    await context.bot.send_message(chat_id, "✅ انتهى الفحص بالكامل")
+    await context.bot.send_message(chat_id, "✅ انتهى الفحص")
 
 def main():
-    print("🤖 BOT STARTING...")
+    print("🤖 BOT STARTED")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("check", check))
