@@ -1,6 +1,19 @@
+import os
+import telebot
 import time
 
-print("🚀 SCRIPT STARTED")
+TOKEN = os.getenv("BOT_TOKEN")
 
-while True:
-    time.sleep(10)
+if not TOKEN:
+    print("❌ BOT_TOKEN not found")
+    exit()
+
+bot = telebot.TeleBot(TOKEN)
+
+@bot.message_handler(commands=["start"])
+def start(msg):
+    bot.reply_to(msg, "🤖 البوت شغال تمام!")
+
+print("✅ Bot is running...")
+
+bot.infinity_polling()
