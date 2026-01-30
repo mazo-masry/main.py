@@ -1,19 +1,50 @@
 import os
-import telebot
-import time
+import openai
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
-TOKEN = os.getenv("BOT_TOKEN")
+# =====================
+# VARIABLES
+# =====================
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not TOKEN:
-    print("❌ BOT_TOKEN not found")
-    exit()
+openai.api_key = OPENAI_API_KEY
 
-bot = telebot.TeleBot(TOKEN)
+# =====================
+# GPT FUNCTION
+# =====================
+async def ask_gpt(text):
+    response = openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "انت مساعد ذكي بترد باختصار وذكاء"},
+            {"role": "user", "content": text}
+        ]
+    )
+    return response.choices[0].message.content
 
-@bot.message_handler(commands=["start"])
-def start(msg):
-    bot.reply_to(msg, "🤖 البوت شغال تمام!")
+# =====================
+# TELEGRAM HANDLER
+# =====================
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    await update.message.reply_text("⏳ بفكر...")
 
-print("✅ Bot is running...")
+    try:
+        reply = await ask_gpt(user_text)
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text("❌ حصل خطأ")
 
-bot.infinity_polling()
+# =====================
+# MAIN
+# =====================
+def main():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("Bot is running...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
