@@ -2,19 +2,22 @@ import os
 import random
 import string
 import requests
+import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- الإعدادات الأساسية ---
-# تأكد من إضافة BOT_TOKEN في Variables على Railway
+# تفعيل نظام السجلات لمعرفة سبب عدم الرد في Railway Logs
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- الإعدادات ---
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 
-# القائمة البيضاء (يتم تخزينها في الذاكرة)
+# القائمة البيضاء
 ALLOWED_USERS = {ADMIN_ID}
 
 def get_domain_info(domain):
-    """وظيفة لفحص حالة الدومين وتاريخ انتهائه"""
     try:
         url = f"https://rdap.verisign.com/com/v1/domain/{domain}"
         res = requests.get(url, timeout=5)
@@ -26,11 +29,13 @@ def get_domain_info(domain):
             if event.get("eventAction") == "expiration":
                 expiry = event.get("eventDate").split("T")[0]
         return "محجوز 🔒", expiry
-    except Exception:
-        return "خطأ في الاتصال ⚠️", ""
+    except Exception as e:
+        logger.error(f"Error checking domain {domain}: {e}")
+        return "خطأ ⚠️", ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    logger.info(f"User {user_id} started the bot")
     
     if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
         keyboard = [
@@ -38,75 +43,70 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ['🔍 فحص يدوي', '📅 حالة الانتهاء'],
             ['➕ إضافة مستخدم', '📋 القائمة البيضاء']
         ]
-        # لوحة تحكم المستخدم العادي (بدون صلاحيات الإدارة)
-        if user_id != ADMIN_ID:
-            keyboard = [['🎯 قناص الدومينات', '💎 صيد الثلاثي'], ['🔍 فحص يدوي']]
-            
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("🎯 **مرحباً بك في نظام القنص الاحترافي!**\nاختر هدفك من القائمة بالأسفل:", reply_markup=markup, parse_mode='Markdown')
+        await update.message.reply_text("🎯 **نظام القنص متصل الآن!**\nاختر هدفك:", reply_markup=markup, parse_mode='Markdown')
     else:
-        await update.message.reply_text(f"🚫 الوصول مرفوض.\nتعريفك الرقمي (ID): `{user_id}`")
-
-async def handle_admin(update: Update, text: str):
-    """إدارة عمليات الإضافة والحذف للمدير فقط"""
-    if '➕ إضافة' in text:
-        await update.message.reply_text("أرسل المعرف بصيغة: `اضف 123456789`", parse_mode='Markdown')
-        return True
-    elif 'القائمة' in text:
-        await update.message.reply_text(f"👥 المستخدمين المفعلين: `{list(ALLOWED_USERS)}`", parse_mode='Markdown')
-        return True
-    elif text.startswith("اضف "):
-        try:
-            new_id = int(text.split(" ")[1])
-            ALLOWED_USERS.add(new_id)
-            await update.message.reply_text(f"✅ تم تفعيل المستخدم `{new_id}` بنجاح.")
-        except: await update.message.reply_text("❌ تأكد من كتابة الرقم بشكل صحيح.")
-        return True
-    return False
+        await update.message.reply_text(f"🚫 غير مسموح لك.\nID: `{user_id}`")
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
+    logger.info(f"Received message from {user_id}: {text}")
 
-    # التحقق من صلاحيات المدير أولاً
+    # أوامر الإدارة
     if user_id == ADMIN_ID:
-        if await handle_admin(update, text): return
+        if '➕ إضافة' in text:
+            await update.message.reply_text("أرسل: `اضف 123456789`")
+            return
+        elif 'القائمة' in text:
+            await update.message.reply_text(f"المفعلين: `{list(ALLOWED_USERS)}`")
+            return
+        elif text.startswith("اضف "):
+            try:
+                new_id = int(text.split(" ")[1])
+                ALLOWED_USERS.add(new_id)
+                await update.message.reply_text(f"✅ تم تفعيل `{new_id}`")
+            except: pass
+            return
 
-    # التحقق من صلاحية المستخدم العادي
-    if user_id not in ALLOWED_USERS: return
+    if user_id not in ALLOWED_USERS:
+        return
 
-    # --- منطق القناص (الخيارات الجديدة) ---
+    # منطق البحث
     if 'قناص الدومينات' in text:
-        msg = await update.message.reply_text("📡 جاري البحث عن دومينات ساقطة...")
-        # تركيبات دومينات براندات
-        prefixes = ["pro", "top", "go", "fast", "my", "i"]
-        suffixes = ["tech", "web", "app", "hub", "zone"]
+        msg = await update.message.reply_text("📡 جاري القنص...")
+        prefixes = ["pro", "top", "go", "fast"]
         results = []
-        for _ in range(5):
-            name = random.choice(prefixes) + random.choice(suffixes) + random.choice(['x', 'z', 'q', '']) + ".com"
+        for _ in range(4):
+            name = random.choice(prefixes) + ''.join(random.choices(string.ascii_lowercase, k=3)) + ".com"
             status, _ = get_domain_info(name)
             if "متاح" in status:
-                results.append(f"🔥 **لقطة:** `{name}`\n🔗 [قنص الآن](https://www.namecheap.com/domains/registration/results/?domain={name})")
+                results.append(f"🔥 `{name}`\n🔗 [حجز](https://www.namecheap.com/domains/registration/results/?domain={name})")
         
-        await msg.edit_text("🎯 **أهداف متاحة للصيد الآن:**\n\n" + ("\n\n".join(results) if results else "لم أجد صيداً ثميناً حالياً، حاول مرة أخرى."), parse_mode='Markdown', disable_web_page_preview=True)
+        await msg.edit_text("🎯 **أهداف متاحة:**\n\n" + "\n\n".join(results) if results else "حاول مجدداً.", parse_mode='Markdown')
 
     elif 'صيد الثلاثي' in text:
-        msg = await update.message.reply_text("💎 جاري البحث عن تركيبات ثلاثية نادرة...")
-        chars = string.ascii_lowercase + string.digits
+        msg = await update.message.reply_text("💎 جاري فحص الثلاثي...")
         found = []
-        for _ in range(8):
-            d = ''.join(random.choices(chars, k=3)) + ".com"
+        for _ in range(5):
+            d = ''.join(random.choices(string.ascii_lowercase + string.digits, k=3)) + ".com"
             status, _ = get_domain_info(d)
             if "متاح" in status: found.append(f"💎 `{d}`")
-        
-        await msg.edit_text("🎯 **دومينات ثلاثية متاحة:**\n\n" + ("\n".join(found) if found else "جميع التركيبات محجوزة حالياً."), parse_mode='Markdown')
-
-    elif 'فحص يدوي' in text:
-        await update.message.reply_text("أرسل الدومين الذي تريد فحص تاريخه (مثال: google.com):")
+        await msg.edit_text("🎯 **ثلاثي متاح:**\n\n" + "\n".join(found) if found else "لا يوجد حالياً.", parse_mode='Markdown')
 
     elif '.com' in text:
         status, expiry = get_domain_info(text.lower().strip())
-        await update.message.reply_text(f"📊 **تقرير القناص:**\n\n🌐 الدومين: `{text}`\nحالة التوافر: {status}\nتاريخ الانتهاء: `{expiry}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **التقرير:**\n🌐 `{text}`\nالحالة: {status}\nالانتهاء: `{expiry}`", parse_mode='Markdown')
+
+if __name__ == "__main__":
+    if not TOKEN:
+        logger.error("BOT_TOKEN is missing!")
+    else:
+        app = Application.builder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+        logger.info("Bot is polling...")
+        app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     if not TOKEN:
