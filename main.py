@@ -6,17 +6,15 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- الإعدادات الأساسية ---
+# تأكد من إضافة BOT_TOKEN في Variables على Railway
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 665829780  # معرف المدير (أنت)
+ADMIN_ID = 665829780 
 
-# قائمة المستخدمين المسموح لهم (تبدأ بك وبـ 100 خانة فارغة اختيارياً)
-# في هذه النسخة، سيتم حفظ المضافين في الذاكرة أثناء تشغيل السيرفر
+# القائمة البيضاء (يتم تخزينها في الذاكرة)
 ALLOWED_USERS = {ADMIN_ID}
 
-def generate_random_domain(length):
-    return ''.join(random.choices(string.ascii_lowercase, k=length)) + ".com"
-
 def get_domain_info(domain):
+    """وظيفة لفحص حالة الدومين وتاريخ انتهائه"""
     try:
         url = f"https://rdap.verisign.com/com/v1/domain/{domain}"
         res = requests.get(url, timeout=5)
@@ -28,85 +26,97 @@ def get_domain_info(domain):
             if event.get("eventAction") == "expiration":
                 expiry = event.get("eventDate").split("T")[0]
         return "محجوز 🔒", expiry
-    except:
-        return "خطأ في الفحص ⚠️", ""
+    except Exception:
+        return "خطأ في الاتصال ⚠️", ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    if user_id == ADMIN_ID:
+    if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
         keyboard = [
-            ['4 حروف', '5 حروف', '3 حروف 💎'],
-            ['بحث عن متاح', 'قربت تنتهي ⏰'],
-            ['➕ إضافة مستخدم', '➖ حذف مستخدم'],
-            ['📋 قائمة المتصلين']
+            ['🎯 قناص الدومينات', '💎 صيد الثلاثي'],
+            ['🔍 فحص يدوي', '📅 حالة الانتهاء'],
+            ['➕ إضافة مستخدم', '📋 القائمة البيضاء']
         ]
-        msg = "👑 أهلاً بك يا مدير! لوحة التحكم كاملة بين يديك:"
-    elif user_id in ALLOWED_USERS:
-        keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'قربت تنتهي ⏰']]
-        msg = "🚀 أهلاً بك! جهازك مفعل، اختر من القائمة:"
+        # لوحة تحكم المستخدم العادي (بدون صلاحيات الإدارة)
+        if user_id != ADMIN_ID:
+            keyboard = [['🎯 قناص الدومينات', '💎 صيد الثلاثي'], ['🔍 فحص يدوي']]
+            
+        markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("🎯 **مرحباً بك في نظام القنص الاحترافي!**\nاختر هدفك من القائمة بالأسفل:", reply_markup=markup, parse_mode='Markdown')
     else:
-        keyboard = []
-        msg = f"🚫 الوصول مرفوض.\nتعريفك (ID): `{user_id}`\nأرسله للمدير لتفعيلك."
+        await update.message.reply_text(f"🚫 الوصول مرفوض.\nتعريفك الرقمي (ID): `{user_id}`")
 
-    markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(msg, reply_markup=markup, parse_mode='Markdown')
-
-async def handle_admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text
-    
-    if user_id != ADMIN_ID: return False
-
+async def handle_admin(update: Update, text: str):
+    """إدارة عمليات الإضافة والحذف للمدير فقط"""
     if '➕ إضافة' in text:
-        await update.message.reply_text("ارسله الآن بصيغة: `اضف 123456789`", parse_mode='Markdown')
+        await update.message.reply_text("أرسل المعرف بصيغة: `اضف 123456789`", parse_mode='Markdown')
         return True
-    elif '➖ حذف' in text:
-        await update.message.reply_text("ارسله الآن بصيغة: `احذف 123456789`", parse_mode='Markdown')
+    elif 'القائمة' in text:
+        await update.message.reply_text(f"👥 المستخدمين المفعلين: `{list(ALLOWED_USERS)}`", parse_mode='Markdown')
         return True
-    elif 'قائمة' in text:
-        users_list = "\n".join([f"👤 `{u}`" for u in ALLOWED_USERS])
-        await update.message.reply_text(f"📋 المستخدمين المفعلين حالياً:\n{users_list}", parse_mode='Markdown')
+    elif text.startswith("اضف "):
+        try:
+            new_id = int(text.split(" ")[1])
+            ALLOWED_USERS.add(new_id)
+            await update.message.reply_text(f"✅ تم تفعيل المستخدم `{new_id}` بنجاح.")
+        except: await update.message.reply_text("❌ تأكد من كتابة الرقم بشكل صحيح.")
         return True
-    
-    # تنفيذ أوامر الإضافة والحذف النصية
-    if text.startswith("اضف "):
-        new_id = int(text.split(" ")[1])
-        ALLOWED_USERS.add(new_id)
-        await update.message.reply_text(f"✅ تم إضافة `{new_id}` للقائمة البيضاء.", parse_mode='Markdown')
-        return True
-    elif text.startswith("احذف "):
-        del_id = int(text.split(" ")[1])
-        if del_id in ALLOWED_USERS and del_id != ADMIN_ID:
-            ALLOWED_USERS.remove(del_id)
-            await update.message.reply_text(f"🗑️ تم حذف `{del_id}` بنجاح.", parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❌ لا يمكن حذف هذا الرقم.")
-        return True
-    
     return False
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    # أولاً: التحقق من أوامر المدير
-    if await handle_admin_actions(update, context): return
+    # التحقق من صلاحيات المدير أولاً
+    if user_id == ADMIN_ID:
+        if await handle_admin(update, text): return
 
-    # ثانياً: التحقق من صلاحية المستخدم العادي
+    # التحقق من صلاحية المستخدم العادي
     if user_id not in ALLOWED_USERS: return
 
-    msg = await update.message.reply_text("⏳ جاري المعالجة...")
-    
-    if '3' in text or '4' in text or '5' in text:
-        length = 3 if '3' in text else (4 if '4' in text else 5)
-        res = []
+    # --- منطق القناص (الخيارات الجديدة) ---
+    if 'قناص الدومينات' in text:
+        msg = await update.message.reply_text("📡 جاري البحث عن دومينات ساقطة...")
+        # تركيبات دومينات براندات
+        prefixes = ["pro", "top", "go", "fast", "my", "i"]
+        suffixes = ["tech", "web", "app", "hub", "zone"]
+        results = []
         for _ in range(5):
-            d = generate_random_domain(length)
-            buy_link = f"https://www.namecheap.com/domains/registration/results/?domain={d}"
-            res.append(f"🌐 `{d}`\n🔗 [شراء]( {buy_link} )")
-        await msg.edit_text(f"🔎 مقترحات {length} حروف:\n\n" + "\n".join(res), parse_mode='Markdown', disable_web_page_preview=True)
+            name = random.choice(prefixes) + random.choice(suffixes) + random.choice(['x', 'z', 'q', '']) + ".com"
+            status, _ = get_domain_info(name)
+            if "متاح" in status:
+                results.append(f"🔥 **لقطة:** `{name}`\n🔗 [قنص الآن](https://www.namecheap.com/domains/registration/results/?domain={name})")
+        
+        await msg.edit_text("🎯 **أهداف متاحة للصيد الآن:**\n\n" + ("\n\n".join(results) if results else "لم أجد صيداً ثميناً حالياً، حاول مرة أخرى."), parse_mode='Markdown', disable_web_page_preview=True)
 
+    elif 'صيد الثلاثي' in text:
+        msg = await update.message.reply_text("💎 جاري البحث عن تركيبات ثلاثية نادرة...")
+        chars = string.ascii_lowercase + string.digits
+        found = []
+        for _ in range(8):
+            d = ''.join(random.choices(chars, k=3)) + ".com"
+            status, _ = get_domain_info(d)
+            if "متاح" in status: found.append(f"💎 `{d}`")
+        
+        await msg.edit_text("🎯 **دومينات ثلاثية متاحة:**\n\n" + ("\n".join(found) if found else "جميع التركيبات محجوزة حالياً."), parse_mode='Markdown')
+
+    elif 'فحص يدوي' in text:
+        await update.message.reply_text("أرسل الدومين الذي تريد فحص تاريخه (مثال: google.com):")
+
+    elif '.com' in text:
+        status, expiry = get_domain_info(text.lower().strip())
+        await update.message.reply_text(f"📊 **تقرير القناص:**\n\n🌐 الدومين: `{text}`\nحالة التوافر: {status}\nتاريخ الانتهاء: `{expiry}`", parse_mode='Markdown')
+
+if __name__ == "__main__":
+    if not TOKEN:
+        print("❌ خطأ: لم يتم العثور على BOT_TOKEN!")
+    else:
+        app = Application.builder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+        print("🎯 Sniper Bot is online and stable...")
+        app.run_polling(drop_pending_updates=True)
     elif 'متاح' in text:
         found = []
         for _ in range(10):
