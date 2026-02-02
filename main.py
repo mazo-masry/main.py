@@ -1,12 +1,11 @@
 import os
 import random
-import string
 import requests
 import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات لمراقبة الأخطاء في Railway
+# إعداد السجلات لمراقبة الأخطاء
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -15,105 +14,117 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 ALLOWED_USERS = {ADMIN_ID}
 
+# وظيفة فحص الدومين
 def check_domain_availability(domain):
     try:
         url = f"https://rdap.verisign.com/com/v1/domain/{domain}"
         res = requests.get(url, timeout=3)
         return "متاح ✅" if res.status_code == 404 else "محجوز 🔒"
-    except Exception as e:
-        logger.error(f"Error checking domain: {e}")
+    except:
         return "خطأ فحص ⚠️"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
+        # تعريف الأزرار بشكل دقيق
         keyboard = [
             ['🔥 رادار الكلمات الساخنة', '💎 رادار الدومينات القصيرة'],
             ['📜 فحص العمر الذهبي', '🔔 تنبيه الصياد المخصص'],
             ['📋 قائمة المفعلين', '➕ إضافة', '➖ حذف']
         ]
+        
+        # لوحة المستخدم العادي (بدون صلاحيات الإدارة)
         if user_id != ADMIN_ID:
             keyboard = [['🔥 رادار الكلمات الساخنة', '💎 رادار الدومينات القصيرة'], ['📜 فحص العمر الذهبي', '🔔 تنبيه الصياد المخصص']]
             
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-            "🚀 **البوت عاد للعمل بنجاح!**\nتم تحديث كافة الميزات. اختر أداة لبدء الاستثمار:",
+            "⚡ **تم تحديث وإصلاح كافة الأزرار!**\nالآن يمكنك استكشاف الدومينات الحقيقية والتريندات بسهولة.",
             reply_markup=markup,
             parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(f"🚫 غير مصرح لك.\nID: `{user_id}`")
 
-async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    if user_id not in ALLOWED_USERS and user_id != ADMIN_ID: return
+    # التحقق من الصلاحية
+    if user_id not in ALLOWED_USERS and user_id != ADMIN_ID:
+        return
 
-    # --- إدارة المستخدمين (تعمل 100%) ---
-    if user_id == ADMIN_ID:
-        if text.startswith("اضف "):
-            try:
-                new_id = int(text.split(" ")[1])
-                ALLOWED_USERS.add(new_id)
-                await update.message.reply_text(f"✅ تم تفعيل: `{new_id}`")
-            except: await update.message.reply_text("❌ صيغة خاطئة.")
-            return
-        elif text.startswith("احذف "):
-            try:
-                del_id = int(text.split(" ")[1])
-                if del_id in ALLOWED_USERS:
-                    ALLOWED_USERS.remove(del_id)
-                    await update.message.reply_text(f"🗑️ تم حذف: `{del_id}`")
-            except: await update.message.reply_text("❌ صيغة خاطئة.")
-            return
-        elif text == '📋 قائمة المفعلين':
-            await update.message.reply_text(f"👥 المفعلين: `{list(ALLOWED_USERS)}`")
-            return
-
-    # --- 🔥 رادار الكلمات الساخنة ---
+    # --- 1. رادار الكلمات الساخنة (كلمات حقيقية) ---
     if text == '🔥 رادار الكلمات الساخنة':
-        msg = await update.message.reply_text("🔎 جاري تحليل كلمات التريند...")
-        words = ["ai", "crypto", "smart", "meta", "cyber", "green", "bio"]
+        msg = await update.message.reply_text("🔎 جاري مسح الكلمات الأكثر بحثاً في مجالات التقنية...")
+        hot_base = ["crypto", "token", "neural", "meta", "smart", "cyber", "web3", "cloud", "fast"]
+        suffixes = ["hub", "lab", "base", "fix", "box", "node"]
+        
         found = []
-        for _ in range(10):
-            d = random.choice(words) + random.choice(["lab", "fix", "hub", "node"]) + ".com"
-            if check_domain_availability(d) == "متاح ✅": found.append(f"🔥 `{d}`")
+        for _ in range(12):
+            domain = random.choice(hot_base) + random.choice(suffixes) + ".com"
+            if check_domain_availability(domain) == "متاح ✅":
+                found.append(f"🔥 `{domain}`")
             if len(found) >= 3: break
-        await msg.edit_text("🎯 **دومينات تريند متاحة:**\n\n" + "\n".join(found))
+        
+        await msg.edit_text("🎯 **أهداف تريند حقيقية متاحة:**\n\n" + ("\n".join(found) if found else "حاول مرة أخرى.."))
 
-    # --- 💎 رادار الدومينات القصيرة ---
+    # --- 2. رادار الدومينات القصيرة (سهلة النطق) ---
     elif text == '💎 رادار الدومينات القصيرة':
-        msg = await update.message.reply_text("💎 صيد الدومينات القصيرة (4-5 حروف)...")
-        v = "aeiou"
-        c = "bcdfghjklmnpqrstvwxyz"
+        msg = await update.message.reply_text("💎 جاري البحث عن نطاقات خماسية وسداسية جذابة...")
+        parts = ["lex", "vibe", "zen", "nova", "core", "flux", "sky", "peak", "glow"]
         found = []
-        for _ in range(15):
-            d = random.choice(c) + random.choice(v) + random.choice(c) + random.choice(v) + ".com"
-            if check_domain_availability(d) == "متاح ✅": found.append(f"💎 `{d}`")
+        for _ in range(12):
+            domain = random.choice(parts) + random.choice(["ly", "io", "go", "up"]) + ".com"
+            if check_domain_availability(domain) == "متاح ✅":
+                found.append(f"💎 `{domain}`")
             if len(found) >= 3: break
-        await msg.edit_text("🎯 **دومينات قصيرة متاحة:**\n\n" + "\n".join(found))
+        
+        await msg.edit_text("🎯 **دومينات قصيرة وجذابة:**\n\n" + ("\n".join(found) if found else "جاري البحث.."))
 
-    # --- 📜 فحص العمر الذهبي ---
-    elif text == '📜 فحص العمر الذهبي':
-        await update.message.reply_text("📜 أرسل اسم الدومين لفحص تاريخه (مثال: `google.com`)")
+    # --- 3. إدارة المستخدمين (إصلاح كامل للأوامر) ---
+    elif text == '➕ إضافة':
+        await update.message.reply_text("أرسل المعرف بالشكل التالي:\n`اضف 12345678`", parse_mode='Markdown')
+        
+    elif text == '➖ حذف':
+        await update.message.reply_text("أرسل المعرف بالشكل التالي:\n`احذف 12345678`", parse_mode='Markdown')
 
-    # --- 🔔 تنبيه الصياد المخصص ---
-    elif text == '🔔 تنبيه الصياد المخصص':
-        await update.message.reply_text("🎯 أرسل الكلمة التي تريد صيدها وسأبحث لك عن خيارات متاحة لها.")
+    elif text == '📋 قائمة المفعلين':
+        await update.message.reply_text(f"👥 **قائمة المستخدمين المعتمدين:**\n`{list(ALLOWED_USERS)}`", parse_mode='Markdown')
 
-    # فحص عام للدومينات
+    elif text.startswith("اضف ") and user_id == ADMIN_ID:
+        try:
+            target_id = int(text.split(" ")[1])
+            ALLOWED_USERS.add(target_id)
+            await update.message.reply_text(f"✅ تم تفعيل المستخدم: `{target_id}`")
+        except: await update.message.reply_text("❌ خطأ في المعرف.")
+
+    elif text.startswith("احذف ") and user_id == ADMIN_ID:
+        try:
+            target_id = int(text.split(" ")[1])
+            if target_id in ALLOWED_USERS and target_id != ADMIN_ID:
+                ALLOWED_USERS.remove(target_id)
+                await update.message.reply_text(f"🗑️ تم حذف المستخدم: `{target_id}`")
+            else: await update.message.reply_text("❌ المستخدم غير موجود.")
+        except: await update.message.reply_text("❌ خطأ في المعرف.")
+
+    # --- 4. فحص الدومينات المباشر ---
     elif '.' in text:
         domain = text.lower().strip()
         status = check_domain_availability(domain)
-        await update.message.reply_text(f"📊 فحص `{domain}`:\nالحالة: {status}")
+        await update.message.reply_text(f"📊 **نتيجة فحص الدومين:**\n\nالدومين: `{domain}`\nالحالة: {status}", parse_mode='Markdown')
+
+    # --- 5. الرسائل الأخرى (تنبيه الصياد / العمر الذهبي) ---
+    elif text == '🔔 تنبيه الصياد المخصص':
+        await update.message.reply_text("🎯 أرسل الكلمة التي تود البحث عنها كدومين (مثل: Dubai).")
+        
+    elif text == '📜 فحص العمر الذهبي':
+        await update.message.reply_text("📜 أرسل اسم الدومين لفحص تاريخه وحالته.")
 
 if __name__ == "__main__":
     if TOKEN:
         app = Application.builder().token(TOKEN).build()
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         logger.info("Bot is running...")
         app.run_polling(drop_pending_updates=True)
-    else:
-        logger.error("No BOT_TOKEN found!")
