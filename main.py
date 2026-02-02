@@ -2,72 +2,95 @@ import os
 import random
 import string
 import requests
-import asyncio
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- الإعدادات ---
 TOKEN = os.getenv("BOT_TOKEN")
-# قائمة لتخزين الدومينات التي يراقبها البوت (في Railway يفضل استخدام قاعدة بيانات لاحقاً)
-MONITORED_DOMAINS = {}
 
-def get_expiry_data(domain):
+def generate_domain(length):
+    return ''.join(random.choice(string.ascii_lowercase) for _ in range(length)) + ".com"
+
+def get_domain_info(domain):
+    """فحص التوافر وتاريخ الانتهاء وتقدير السعر"""
     try:
         res = requests.get(f"https://rdap.verisign.com/com/v1/domain/{domain}", timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            events = data.get("events", [])
-            expiry_date = "غير محدد"
-            for event in events:
-                if event.get("eventAction") == "expiration":
-                    expiry_date = event.get("eventDate").split("T")[0]
-            return {"status": "محجوز", "expiry": expiry_date}
-        return {"status": "متاح"}
+        
+        # تقدير السعر بناءً على طول الاسم
+        name_only = domain.split('.')[0]
+        if len(name_only) <= 4:
+            value = "$500 - $2,000"
+        elif len(name_only) == 5:
+            value = "$100 - $500"
+        else:
+            value = "$20 - $100"
+
+        if res.status_code == 404:
+            return {"status": "متاح ✅", "expiry": "N/A", "value": value}
+        
+        data = res.json()
+        events = data.get("events", [])
+        expiry = "غير محدد"
+        for event in events:
+            if event.get("eventAction") == "expiration":
+                expiry = event.get("eventDate").split("T")[0]
+        
+        return {"status": "محجوز 🔒", "expiry": expiry, "value": value}
     except:
         return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'قربت تنتهي ⏰'], ['راقب دومين 🎯']]
+    keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'كلمات مفهومة'], ['قربت تنتهي ⏰']]
     markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("🎯 صائد الدومينات العبقري جاهز!\n\nيمكنك الآن مراقبة دومين معين وسأخبرك فور سقوطه.", reply_markup=markup)
+    await update.message.reply_text("🚀 بوت صائد الدومينات يعمل الآن!\nاختر ما تريد من القائمة بالأسفل:", reply_markup=markup)
 
-async def monitor_task(context: ContextTypes.DEFAULT_TYPE):
-    """دالة تعمل في الخلفية لفحص الدومينات المراقبة كل ساعة"""
-    for chat_id, domains in MONITORED_DOMAINS.items():
-        for domain in domains:
-            data = get_expiry_data(domain)
-            if data and data["status"] == "متاح":
-                await context.bot.send_message(chat_id, f"🚨 عاجل: الدومين {domain} أصبح متاحاً الآن! اشترِه بسرعة!")
-                MONITORED_DOMAINS[chat_id].remove(domain)
-
-async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    chat_id = update.message.chat_id
+    # إرسال رسالة مؤقتة لتأكيد الاستلام
+    temp_msg = await update.message.reply_text("⏳ جاري المعالجة...")
+    
+    response = ""
+    
+    if '4' in text or '5' in text:
+        length = 4 if '4' in text else 5
+        domains = [generate_domain(length) for _ in range(8)]
+        response = f"🔎 مقترحات {length} حروف:\n\n" + "\n".join(domains)
 
-    if 'راقب' in text:
-        await update.message.reply_text("أرسل اسم الدومين الذي تريد مراقبته (مثال: example.com)")
-        context.user_data['action'] = 'monitor'
-        return
+    elif 'متاح' in text:
+        found = []
+        for _ in range(20):
+            d = generate_domain(5)
+            info = get_domain_info(d)
+            if info and "متاح" in info["status"]:
+                found.append(f"✅ {d} (القيمة: {info['value']})")
+            if len(found) >= 4: break
+        response = "💎 دومينات متاحة للتسجيل:\n\n" + "\n".join(found)
 
-    if context.user_data.get('action') == 'monitor':
-        domain = text.strip().lower()
-        if chat_id not in MONITORED_DOMAINS: MONITORED_DOMAINS[chat_id] = []
-        MONITORED_DOMAINS[chat_id].append(domain)
-        context.user_data['action'] = None
-        await update.message.reply_text(f"✅ تم إضافة {domain} لقائمة المراقبة. سأخبرك فور توفره.")
-        return
+    elif 'كلمة' in text:
+        words = ["smart", "fast", "pro", "hub", "web", "go", "app", "bit"]
+        domains = [random.choice(words) + generate_domain(2) for _ in range(6)]
+        response = "💡 دومينات بكلمات مفهومة:\n\n" + "\n".join(domains)
 
-    # ... (بقية الأكواد السابقة الخاصة بـ 4 حروف و 5 حروف ومتاح) ...
-    # سيقوم البوت بتنفيذ الأوامر كما في النسخة السابقة
-    await update.message.reply_text(f"جاري معالجة طلبك لـ {text}...")
+    elif 'تنتهي' in text:
+        expiring = []
+        for _ in range(5):
+            d = generate_domain(random.choice([4, 5]))
+            info = get_domain_info(d)
+            if info and "محجوز" in info["status"]:
+                expiring.append(f"⏰ {d}\n📅 ينتهي: {info['expiry']}\n💰 القيمة: {info['value']}\n")
+        response = "🔔 دومينات قربت تنتهي:\n\n" + "\n".join(expiring)
+
+    else:
+        response = "استخدم الأزرار الموجودة في القائمة."
+
+    await temp_msg.edit_text(response)
 
 if __name__ == "__main__":
-    app = Application.builder().token(TOKEN).build()
-    
-    # تشغيل مهمة المراقبة كل 3600 ثانية (ساعة)
-    job_queue = app.job_queue
-    job_queue.run_repeating(monitor_task, interval=3600, first=10)
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
-    app.run_polling(drop_pending_updates=True)
+    if not TOKEN:
+        print("❌ الخطأ: لم يتم العثور على BOT_TOKEN")
+    else:
+        app = Application.builder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        print("🤖 البوت شغال...")
+        app.run_polling(drop_pending_updates=True)
