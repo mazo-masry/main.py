@@ -7,18 +7,14 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # --- الإعدادات الأساسية ---
 TOKEN = os.getenv("BOT_TOKEN")
+# رقم الـ ID الخاص بك (تأكد أنه صحيح من واقع صورك)
+ADMIN_ID = 665829780 
 
-# 📋 قائمة الأشخاص المسموح لهم (القائمة البيضاء)
-ALLOWED_USERS = {
-    665829780,  # أنت (المدير)
-    # XXXXXXXX1,  # مستخدم 2
-    # XXXXXXXX2,  # مستخدم 3
-}
-
-def generate_random_domain(length):
-    return ''.join(random.choices(string.ascii_lowercase, k=length)) + ".com"
+# قائمة المستخدمين المسموح لهم (نبدأ بك كمدير)
+ALLOWED_USERS = {ADMIN_ID}
 
 def get_domain_info(domain):
+    """فحص حالة الدومين وتاريخ الانتهاء"""
     try:
         url = f"https://rdap.verisign.com/com/v1/domain/{domain}"
         res = requests.get(url, timeout=5)
@@ -36,77 +32,92 @@ def get_domain_info(domain):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    if user_id == ADMIN_ID:
+    if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
         keyboard = [
             ['4 حروف', '5 حروف', '3 حروف 💎'],
             ['بحث عن متاح', 'قربت تنتهي ⏰'],
-            ['AI اقتراحات 🧠'], # زر الذكاء الاصطناعي
-            ['➕ إضافة مستخدم', '➖ حذف مستخدم'],
-            ['📋 قائمة المتصلين']
+            ['AI اقتراحات 🧠'],
+            ['➕ إضافة مستخدم', '➖ حذف مستخدم', '📋 قائمة المتصلين']
         ]
-        msg = "👑 أهلاً بك يا مدير! لوحة التحكم كاملة بين يديك:"
-    elif user_id in ALLOWED_USERS:
-        keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'قربت تنتهي ⏰'], ['AI اقتراحات 🧠']]
-        msg = "🚀 أهلاً بك! جهازك مفعل، اختر من القائمة:"
+        # لوحة التحكم تظهر فقط للمدير، أما المستخدم العادي يرى أوامر البحث فقط
+        if user_id != ADMIN_ID:
+            keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'AI اقتراحات 🧠']]
+            
+        markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("🚀 البوت جاهز للعمل!\nاختر من القائمة بالأسفل:", reply_markup=markup)
     else:
-        keyboard = []
-        msg = f"🚫 الوصول مرفوض.\nتعريفك (ID): `{user_id}`\nأرسله للمدير لتفعيلك."
-
-    markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(msg, reply_markup=markup, parse_mode='Markdown')
-
-async def handle_admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text
-    
-    if user_id != ADMIN_ID: return False
-
-    if '➕ إضافة' in text:
-        await update.message.reply_text("أرسل الأيدي بصيغة: `اضف 123456789`", parse_mode='Markdown')
-        return True
-    elif '➖ حذف' in text:
-        await update.message.reply_text("أرسل الأيدي بصيغة: `احذف 123456789`", parse_mode='Markdown')
-        return True
-    elif 'قائمة' in text:
-        if ALLOWED_USERS:
-            users_list = "\n".join([f"👤 `{u}`" for u in ALLOWED_USERS])
-            await update.message.reply_text(f"📋 المستخدمين المفعلين حالياً:\n{users_list}", parse_mode='Markdown')
-        else:
-            await update.message.reply_text("📋 لا يوجد مستخدمين مفعلين حالياً غيرك.")
-        return True
-    
-    if text.startswith("اضف "):
-        try:
-            new_id = int(text.split(" ")[1])
-            ALLOWED_USERS.add(new_id)
-            await update.message.reply_text(f"✅ تم إضافة `{new_id}` للقائمة البيضاء.", parse_mode='Markdown')
-        except (ValueError, IndexError):
-            await update.message.reply_text("❌ صيغة الإضافة خاطئة. استخدم `اضف 123456789`.", parse_mode='Markdown')
-        return True
-    elif text.startswith("احذف "):
-        try:
-            del_id = int(text.split(" ")[1])
-            if del_id in ALLOWED_USERS and del_id != ADMIN_ID: # لا يمكن حذف الآدمن
-                ALLOWED_USERS.remove(del_id)
-                await update.message.reply_text(f"🗑️ تم حذف `{del_id}` بنجاح.", parse_mode='Markdown')
-            else:
-                await update.message.reply_text("❌ الرقم غير موجود أو لا يمكن حذف المدير.")
-        except (ValueError, IndexError):
-            await update.message.reply_text("❌ صيغة الحذف خاطئة. استخدم `احذف 123456789`.", parse_mode='Markdown')
-        return True
-    
-    return False
+        await update.message.reply_text(f"🚫 الوصول مرفوض.\nتعريفك (ID): `{user_id}`\nأرسله للمدير لتفعيلك.")
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    if await handle_admin_actions(update, context): return
+    # --- لوحة تحكم المدير ---
+    if user_id == ADMIN_ID:
+        if '➕ إضافة' in text:
+            await update.message.reply_text("أرسل الأيدي بصيغة: `اضف 123456789`", parse_mode='Markdown')
+            return
+        elif '➖ حذف' in text:
+            await update.message.reply_text("أرسل الأيدي بصيغة: `احذف 123456789`", parse_mode='Markdown')
+            return
+        elif 'قائمة' in text:
+            await update.message.reply_text(f"📋 المفعلين حالياً: `{list(ALLOWED_USERS)}`", parse_mode='Markdown')
+            return
+        elif text.startswith("اضف "):
+            try:
+                new_id = int(text.split(" ")[1])
+                ALLOWED_USERS.add(new_id)
+                await update.message.reply_text(f"✅ تم إضافة `{new_id}`")
+            except: await update.message.reply_text("❌ خطأ في الرقم")
+            return
+        elif text.startswith("احذف "):
+            try:
+                del_id = int(text.split(" ")[1])
+                if del_id in ALLOWED_USERS and del_id != ADMIN_ID:
+                    ALLOWED_USERS.remove(del_id)
+                    await update.message.reply_text(f"🗑️ تم حذف `{del_id}`")
+            except: await update.message.reply_text("❌ خطأ")
+            return
 
+    # --- صلاحيات المستخدمين ---
     if user_id not in ALLOWED_USERS: return
 
-    msg = await update.message.reply_text("⏳ جاري المعالجة...")
-    
+    # --- منطق البحث والـ AI ---
+    if '3' in text or '4' in text or '5' in text:
+        msg = await update.message.reply_text("⏳ جاري التوليد...")
+        length = 3 if '3' in text else (4 if '4' in text else 5)
+        res = []
+        for _ in range(5):
+            d = ''.join(random.choices(string.ascii_lowercase, k=length)) + ".com"
+            res.append(f"🌐 `{d}`")
+        await msg.edit_text("🔎 مقترحات عشوائية:\n" + "\n".join(res), parse_mode='Markdown')
+
+    elif 'AI اقتراحات' in text:
+        msg = await update.message.reply_text("🧠 جاري التفكير بالذكاء الاصطناعي...")
+        prefixes = ["meta", "zen", "cloud", "fast", "smart", "sky", "bit", "pro", "vision", "prime"]
+        suffixes = ["ly", "ify", "hub", "zone", "net", "web", "lab", "tech", "sol", "gen"]
+        ai_res = []
+        for _ in range(5):
+            name = random.choice(prefixes) + random.choice(suffixes) + ".com"
+            status, _ = get_domain_info(name)
+            ai_res.append(f"✨ `{name}` -> {status}")
+        await msg.edit_text("🤖 مقترحات البراندات (AI):\n\n" + "\n".join(ai_res), parse_mode='Markdown')
+
+    elif 'متاح' in text or 'تنتهي' in text:
+        msg = await update.message.reply_text("🔍 فحص سريع...")
+        d = ''.join(random.choices(string.ascii_lowercase, k=5)) + ".com"
+        status, expiry = get_domain_info(d)
+        await msg.edit_text(f"📊 النتائج لـ `{d}`:\nالحالة: {status}\nانتهاء: {expiry}", parse_mode='Markdown')
+
+if __name__ == "__main__":
+    if not TOKEN:
+        print("❌ خطأ: BOT_TOKEN مفقود في Railway Variables!")
+    else:
+        app = Application.builder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+        print("🤖 البوت يعمل الآن بدون كراش...")
+        app.run_polling(drop_pending_updates=True)
     if '3 حروف 💎' in text or '4 حروف' in text or '5 حروف' in text:
         length = 3 if '3 حروف' in text else (4 if '4 حروف' in text else 5)
         res = []
