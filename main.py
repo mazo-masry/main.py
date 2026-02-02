@@ -7,10 +7,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # --- الإعدادات الأساسية ---
 TOKEN = os.getenv("BOT_TOKEN")
-# رقم الـ ID الخاص بك (تأكد أنه صحيح من واقع صورك)
-ADMIN_ID = 665829780 
+ADMIN_ID = 665829780  # معرفك الخاص كمدير
 
-# قائمة المستخدمين المسموح لهم (نبدأ بك كمدير)
+# قائمة المستخدمين المسموح لهم (القائمة البيضاء)
 ALLOWED_USERS = {ADMIN_ID}
 
 def get_domain_info(domain):
@@ -26,33 +25,33 @@ def get_domain_info(domain):
             if event.get("eventAction") == "expiration":
                 expiry = event.get("eventDate").split("T")[0]
         return "محجوز 🔒", expiry
-    except:
+    except Exception:
         return "خطأ في الفحص ⚠️", ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
+    if user_id in ALLOWED_USERS or user_id == ADMIN_ID:
         keyboard = [
             ['4 حروف', '5 حروف', '3 حروف 💎'],
             ['بحث عن متاح', 'قربت تنتهي ⏰'],
             ['AI اقتراحات 🧠'],
             ['➕ إضافة مستخدم', '➖ حذف مستخدم', '📋 قائمة المتصلين']
         ]
-        # لوحة التحكم تظهر فقط للمدير، أما المستخدم العادي يرى أوامر البحث فقط
+        # لوحة التحكم للمستخدم العادي تختلف عن المدير
         if user_id != ADMIN_ID:
             keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'AI اقتراحات 🧠']]
             
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("🚀 البوت جاهز للعمل!\nاختر من القائمة بالأسفل:", reply_markup=markup)
+        await update.message.reply_text("🤖 تم إصلاح السكربت! البوت جاهز للعمل الآن:", reply_markup=markup)
     else:
-        await update.message.reply_text(f"🚫 الوصول مرفوض.\nتعريفك (ID): `{user_id}`\nأرسله للمدير لتفعيلك.")
+        await update.message.reply_text(f"🚫 الوصول مرفوض.\nتعريفك (ID): `{user_id}`")
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    # --- لوحة تحكم المدير ---
+    # --- إدارة المستخدمين (للمدير فقط) ---
     if user_id == ADMIN_ID:
         if '➕ إضافة' in text:
             await update.message.reply_text("أرسل الأيدي بصيغة: `اضف 123456789`", parse_mode='Markdown')
@@ -61,14 +60,14 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("أرسل الأيدي بصيغة: `احذف 123456789`", parse_mode='Markdown')
             return
         elif 'قائمة' in text:
-            await update.message.reply_text(f"📋 المفعلين حالياً: `{list(ALLOWED_USERS)}`", parse_mode='Markdown')
+            await update.message.reply_text(f"📋 المفعلين: `{list(ALLOWED_USERS)}`", parse_mode='Markdown')
             return
         elif text.startswith("اضف "):
             try:
                 new_id = int(text.split(" ")[1])
                 ALLOWED_USERS.add(new_id)
-                await update.message.reply_text(f"✅ تم إضافة `{new_id}`")
-            except: await update.message.reply_text("❌ خطأ في الرقم")
+                await update.message.reply_text(f"✅ تم تفعيل `{new_id}`")
+            except Exception: await update.message.reply_text("❌ خطأ في الصيغة")
             return
         elif text.startswith("احذف "):
             try:
@@ -76,24 +75,21 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if del_id in ALLOWED_USERS and del_id != ADMIN_ID:
                     ALLOWED_USERS.remove(del_id)
                     await update.message.reply_text(f"🗑️ تم حذف `{del_id}`")
-            except: await update.message.reply_text("❌ خطأ")
+            except Exception: await update.message.reply_text("❌ خطأ")
             return
 
     # --- صلاحيات المستخدمين ---
     if user_id not in ALLOWED_USERS: return
 
-    # --- منطق البحث والـ AI ---
-    if '3' in text or '4' in text or '5' in text:
-        msg = await update.message.reply_text("⏳ جاري التوليد...")
+    # --- منطق البحث والذكاء الاصطناعي ---
+    if any(x in text for x in ['3', '4', '5']):
+        msg = await update.message.reply_text("⏳ جاري توليد المقترحات...")
         length = 3 if '3' in text else (4 if '4' in text else 5)
-        res = []
-        for _ in range(5):
-            d = ''.join(random.choices(string.ascii_lowercase, k=length)) + ".com"
-            res.append(f"🌐 `{d}`")
-        await msg.edit_text("🔎 مقترحات عشوائية:\n" + "\n".join(res), parse_mode='Markdown')
+        res = [''.join(random.choices(string.ascii_lowercase, k=length)) + ".com" for _ in range(5)]
+        await msg.edit_text("🔎 مقترحات عشوائية:\n" + "\n".join([f"🌐 `{d}`" for d in res]), parse_mode='Markdown')
 
     elif 'AI اقتراحات' in text:
-        msg = await update.message.reply_text("🧠 جاري التفكير بالذكاء الاصطناعي...")
+        msg = await update.message.reply_text("🧠 جاري التفكير بنمط AI...")
         prefixes = ["meta", "zen", "cloud", "fast", "smart", "sky", "bit", "pro", "vision", "prime"]
         suffixes = ["ly", "ify", "hub", "zone", "net", "web", "lab", "tech", "sol", "gen"]
         ai_res = []
@@ -107,6 +103,17 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await update.message.reply_text("🔍 فحص سريع...")
         d = ''.join(random.choices(string.ascii_lowercase, k=5)) + ".com"
         status, expiry = get_domain_info(d)
+        await msg.edit_text(f"📊 النتائج لـ `{d}`:\nالحالة: {status}\nانتهاء: {expiry}", parse_mode='Markdown')
+
+if __name__ == "__main__":
+    if TOKEN:
+        app = Application.builder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+        print("🤖 البوت يعمل الآن...")
+        app.run_polling(drop_pending_updates=True)
+    else:
+        print("❌ خطأ: BOT_TOKEN غير موجود")
         await msg.edit_text(f"📊 النتائج لـ `{d}`:\nالحالة: {status}\nانتهاء: {expiry}", parse_mode='Markdown')
 
 if __name__ == "__main__":
