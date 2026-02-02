@@ -7,11 +7,13 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # --- الإعدادات الأساسية ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 665829780  # معرف المدير (أنت)
 
-# قائمة المستخدمين المسموح لهم (تبدأ بك وبـ 100 خانة فارغة اختيارياً)
-# في هذه النسخة، سيتم حفظ المضافين في الذاكرة أثناء تشغيل السيرفر
-ALLOWED_USERS = {ADMIN_ID}
+# 📋 قائمة الأشخاص المسموح لهم (القائمة البيضاء)
+ALLOWED_USERS = {
+    665829780,  # أنت (المدير)
+    # XXXXXXXX1,  # مستخدم 2
+    # XXXXXXXX2,  # مستخدم 3
+}
 
 def generate_random_domain(length):
     return ''.join(random.choices(string.ascii_lowercase, k=length)) + ".com"
@@ -38,12 +40,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             ['4 حروف', '5 حروف', '3 حروف 💎'],
             ['بحث عن متاح', 'قربت تنتهي ⏰'],
+            ['AI اقتراحات 🧠'], # زر الذكاء الاصطناعي
             ['➕ إضافة مستخدم', '➖ حذف مستخدم'],
             ['📋 قائمة المتصلين']
         ]
         msg = "👑 أهلاً بك يا مدير! لوحة التحكم كاملة بين يديك:"
     elif user_id in ALLOWED_USERS:
-        keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'قربت تنتهي ⏰']]
+        keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'قربت تنتهي ⏰'], ['AI اقتراحات 🧠']]
         msg = "🚀 أهلاً بك! جهازك مفعل، اختر من القائمة:"
     else:
         keyboard = []
@@ -59,29 +62,37 @@ async def handle_admin_actions(update: Update, context: ContextTypes.DEFAULT_TYP
     if user_id != ADMIN_ID: return False
 
     if '➕ إضافة' in text:
-        await update.message.reply_text("ارسله الآن بصيغة: `اضف 123456789`", parse_mode='Markdown')
+        await update.message.reply_text("أرسل الأيدي بصيغة: `اضف 123456789`", parse_mode='Markdown')
         return True
     elif '➖ حذف' in text:
-        await update.message.reply_text("ارسله الآن بصيغة: `احذف 123456789`", parse_mode='Markdown')
+        await update.message.reply_text("أرسل الأيدي بصيغة: `احذف 123456789`", parse_mode='Markdown')
         return True
     elif 'قائمة' in text:
-        users_list = "\n".join([f"👤 `{u}`" for u in ALLOWED_USERS])
-        await update.message.reply_text(f"📋 المستخدمين المفعلين حالياً:\n{users_list}", parse_mode='Markdown')
+        if ALLOWED_USERS:
+            users_list = "\n".join([f"👤 `{u}`" for u in ALLOWED_USERS])
+            await update.message.reply_text(f"📋 المستخدمين المفعلين حالياً:\n{users_list}", parse_mode='Markdown')
+        else:
+            await update.message.reply_text("📋 لا يوجد مستخدمين مفعلين حالياً غيرك.")
         return True
     
-    # تنفيذ أوامر الإضافة والحذف النصية
     if text.startswith("اضف "):
-        new_id = int(text.split(" ")[1])
-        ALLOWED_USERS.add(new_id)
-        await update.message.reply_text(f"✅ تم إضافة `{new_id}` للقائمة البيضاء.", parse_mode='Markdown')
+        try:
+            new_id = int(text.split(" ")[1])
+            ALLOWED_USERS.add(new_id)
+            await update.message.reply_text(f"✅ تم إضافة `{new_id}` للقائمة البيضاء.", parse_mode='Markdown')
+        except (ValueError, IndexError):
+            await update.message.reply_text("❌ صيغة الإضافة خاطئة. استخدم `اضف 123456789`.", parse_mode='Markdown')
         return True
     elif text.startswith("احذف "):
-        del_id = int(text.split(" ")[1])
-        if del_id in ALLOWED_USERS and del_id != ADMIN_ID:
-            ALLOWED_USERS.remove(del_id)
-            await update.message.reply_text(f"🗑️ تم حذف `{del_id}` بنجاح.", parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❌ لا يمكن حذف هذا الرقم.")
+        try:
+            del_id = int(text.split(" ")[1])
+            if del_id in ALLOWED_USERS and del_id != ADMIN_ID: # لا يمكن حذف الآدمن
+                ALLOWED_USERS.remove(del_id)
+                await update.message.reply_text(f"🗑️ تم حذف `{del_id}` بنجاح.", parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ الرقم غير موجود أو لا يمكن حذف المدير.")
+        except (ValueError, IndexError):
+            await update.message.reply_text("❌ صيغة الحذف خاطئة. استخدم `احذف 123456789`.", parse_mode='Markdown')
         return True
     
     return False
@@ -90,23 +101,77 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    # أولاً: التحقق من أوامر المدير
     if await handle_admin_actions(update, context): return
 
-    # ثانياً: التحقق من صلاحية المستخدم العادي
     if user_id not in ALLOWED_USERS: return
 
     msg = await update.message.reply_text("⏳ جاري المعالجة...")
     
-    if '3' in text or '4' in text or '5' in text:
-        length = 3 if '3' in text else (4 if '4' in text else 5)
+    if '3 حروف 💎' in text or '4 حروف' in text or '5 حروف' in text:
+        length = 3 if '3 حروف' in text else (4 if '4 حروف' in text else 5)
         res = []
+        chars = string.ascii_lowercase + (string.digits if length == 3 else '') # 3 حروف يمكن أن تحتوي على أرقام
         for _ in range(5):
-            d = generate_random_domain(length)
+            d = ''.join(random.choices(chars, k=length)) + ".com"
+            status, _ = get_domain_info(d)
             buy_link = f"https://www.namecheap.com/domains/registration/results/?domain={d}"
-            res.append(f"🌐 `{d}`\n🔗 [شراء]( {buy_link} )")
-        await msg.edit_text(f"🔎 مقترحات {length} حروف:\n\n" + "\n".join(res), parse_mode='Markdown', disable_web_page_preview=True)
+            res.append(f"🌐 `{d}` -> {status}\n🔗 [شراء]({buy_link})")
+        await msg.edit_text(f"🔎 مقترحات {length} حروف:\n\n" + "\n\n".join(res), 
+                           parse_mode='Markdown', disable_web_page_preview=True)
 
+    elif 'متاح' in text:
+        found = []
+        for _ in range(10):
+            d = generate_random_domain(5)
+            status, _ = get_domain_info(d)
+            if "متاح" in status: found.append(d)
+            if len(found) >= 3: break
+        await msg.edit_text("💎 دومينات متاحة حالياً:\n\n" + "\n".join(found) if found else "حاول ثانية.")
+
+    elif 'تنتهي' in text:
+        expiring = []
+        for _ in range(3):
+            d = generate_random_domain(4)
+            status, expiry = get_domain_info(d)
+            if "محجوز" in status:
+                expiring.append(f"⏰ `{d}`\n📅 ينتهي في: `{expiry}`")
+        await msg.edit_text("🔔 دومينات قربت تنتهي:\n\n" + "\n\n".join(expiring) if expiring else "لم أجد عينات حالياً.")
+
+    elif 'AI اقتراحات 🧠' in text:
+        # قائمة بالبادئات واللاحقات الشائعة للعلامات التجارية
+        prefixes = ["meta", "zen", "cloud", "fast", "smart", "sky", "bit", "neo", "pro", "vision", "prime"]
+        suffixes = ["ly", "ify", "hub", "zone", "net", "web", "lab", "tech", "sol", "gen"]
+        mid_parts = ["core", "edge", "max", "x", "path", "link", "up"]
+
+        ai_suggestions = []
+        for _ in range(7): # نولد 7 اقتراحات
+            pattern = random.randint(1, 3) # نختار نمط عشوائي
+            if pattern == 1: # prefix + suffix
+                name = random.choice(prefixes) + random.choice(suffixes)
+            elif pattern == 2: # prefix + mid_part
+                name = random.choice(prefixes) + random.choice(mid_parts)
+            else: # simple combination
+                name = random.choice(prefixes) + ''.join(random.choices(string.ascii_lowercase, k=random.randint(2,3)))
+
+            d = name.lower() + ".com"
+            status, _ = get_domain_info(d)
+            buy_link = f"https://www.namecheap.com/domains/registration/results/?domain={d}"
+            ai_suggestions.append(f"✨ `{d}` -> {status}\n🔗 [اشترِ]( {buy_link} )")
+            
+        await msg.edit_text("🧠 اقتراحات ذكية (AI-Powered Brandable Domains):\n\n" + "\n\n".join(ai_suggestions), 
+                           parse_mode='Markdown', disable_web_page_preview=True)
+    
+    else:
+        await msg.edit_text("يرجى اختيار أمر من القائمة بالأسفل.")
+
+if __name__ == "__main__":
+    app = Application.builder().token(TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+    
+    print("🤖 البوت يعمل الآن بنجاح مع لوحة تحكم المدير واقتراحات الـ AI...")
+    app.run_polling(drop_pending_updates=True)
     elif 'متاح' in text:
         found = []
         for _ in range(10):
