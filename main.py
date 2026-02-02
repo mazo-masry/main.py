@@ -3,10 +3,10 @@ import random
 import string
 import requests
 import logging
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# تفعيل سجلات الأخطاء
+# إعداد السجلات
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -15,31 +15,33 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 ALLOWED_USERS = {ADMIN_ID}
 
+# حالات المحادثة للـ AI
+WAITING_FOR_CATEGORY = 1
+
 def get_domain_info(domain):
+    """فحص الدومين وإرجاع الحالة فقط إذا كان متاحاً"""
     try:
         url = f"https://rdap.verisign.com/com/v1/domain/{domain}"
         res = requests.get(url, timeout=5)
         if res.status_code == 404:
-            return "متاح ✅", "N/A"
-        data = res.json()
-        expiry = next((e['eventDate'].split('T')[0] for e in data.get('events', []) if e.get('eventAction') == 'expiration'), "غير معروف")
-        return "محجوز 🔒", expiry
-    except Exception:
-        return "خطأ ⚠️", ""
+            return "متاح ✅"
+        return "محجوز 🔒"
+    except:
+        return "خطأ ⚠️"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
         keyboard = [
-            ['🎯 صيد الدومينات', '💎 قناص الثلاثي'],
-            ['🧠 AI مقترحات', '🔍 فحص يدوي'],
+            ['🧠 AI اقتراح ذكي', '🎯 صيد الدومينات'],
+            ['💎 قناص الثلاثي', '📅 حالة الانتهاء'],
             ['➕ إضافة مستخدم', '📋 قائمة المفعلين']
         ]
         if user_id != ADMIN_ID:
-            keyboard = [['🎯 صيد الدومينات', '🧠 AI مقترحات'], ['🔍 فحص يدوي']]
+            keyboard = [['🧠 AI اقتراح ذكي', '🎯 صيد الدومينات'], ['💎 قناص الثلاثي']]
         
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("✨ **تم دمج الذكاء الاصطناعي بنجاح!**\nاختر من القائمة المحدثة بالأسفل:", reply_markup=markup, parse_mode='Markdown')
+        await update.message.reply_text("✨ **تم تحديث نظام الـ AI التفاعلي!**\nاضغط على 'AI اقتراح ذكي' ليبدأ البوت بسؤالك.", reply_markup=markup, parse_mode='Markdown')
     else:
         await update.message.reply_text(f"🚫 غير مسموح لك.\nID: `{user_id}`")
 
@@ -47,6 +49,7 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
+    # التحقق من الإدارة
     if user_id == ADMIN_ID:
         if '➕ إضافة' in text:
             await update.message.reply_text("أرسل: `اضف 123456789`")
@@ -64,31 +67,57 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_id not in ALLOWED_USERS: return
 
-    # --- منطق الـ AI المدمج ---
-    if 'AI مقترحات' in text:
-        msg = await update.message.reply_text("🧠 جاري التفكير بنمط AI لتوليد براندات...")
-        prefixes = ["meta", "neo", "zen", "cloud", "fast", "smart", "bit", "pro", "vision", "prime", "nova"]
-        suffixes = ["ly", "ify", "hub", "zone", "net", "web", "lab", "tech", "sol", "gen", "base"]
-        results = []
-        for _ in range(5):
-            name = random.choice(prefixes) + random.choice(suffixes) + ".com"
-            status, _ = get_domain_info(name)
-            results.append(f"✨ `{name}` -> {status}")
-        await msg.edit_text("🤖 **مقترحات AI للبراندات:**\n\n" + "\n".join(results), parse_mode='Markdown')
+    # --- نظام الـ AI التفاعلي الجديد ---
+    if text == '🧠 AI اقتراح ذكي':
+        context.user_data['waiting_for_category'] = True
+        await update.message.reply_text("🤖 **أنا جاهز!**\nما هو المجال أو نوع الدومينات الذي تبحث عنه؟\n(مثال: تقنية، ألعاب، متجر، عقارات...)", reply_markup=ReplyKeyboardRemove())
+        return
 
+    if context.user_data.get('waiting_for_category'):
+        category = text
+        context.user_data['waiting_for_category'] = False
+        msg = await update.message.reply_text(f"⏳ جاري تحليل مجال '{category}' وتوليد دومينات متاحة فقط...")
+        
+        # قاموس الكلمات بناءً على بعض المجالات المشهورة
+        keywords = {
+            "تقنية": ["tech", "bit", "code", "ai", "soft", "nexus"],
+            "متجر": ["shop", "store", "market", "cart", "buy", "sale"],
+            "عقارات": ["home", "land", "real", "villa", "city", "roof"],
+            "ألعاب": ["game", "play", "pro", "zone", "win", "pixel"]
+        }
+        
+        base_words = keywords.get(category, [category[:4], "smart", "go", "fast", "top"])
+        suffixes = ["ly", "ify", "hub", "zone", "net", "web", "lab", "x"]
+        
+        found_domains = []
+        attempts = 0
+        while len(found_domains) < 4 and attempts < 20:
+            attempts += 1
+            name = random.choice(base_words) + random.choice(suffixes) + ".com"
+            if get_domain_info(name) == "متاح ✅":
+                found_domains.append(name)
+        
+        if found_domains:
+            res_text = f"🤖 **نتائج AI لمجال '{category}':**\n\n" + "\n".join([f"✅ `{d}`" for d in found_domains])
+            res_text += "\n\n💡 هذه الدومينات فُحصت وهي متاحة الآن."
+        else:
+            res_text = "😔 لم أجد دومينات متاحة قصيرة في هذا المجال حالياً، حاول مرة أخرى بكلمة مختلفة."
+        
+        # إعادة القائمة الرئيسية
+        keyboard = [['🧠 AI اقتراح ذكي', '🎯 صيد الدومينات'], ['💎 قناص الثلاثي', '📅 حالة الانتهاء']]
+        await msg.edit_text(res_text, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True), parse_mode='Markdown')
+        return
+
+    # --- بقية المنطق ---
     elif 'صيد الدومينات' in text:
         msg = await update.message.reply_text("📡 جاري القنص...")
-        res = [''.join(random.choices(string.ascii_lowercase, k=5)) + ".com" for _ in range(4)]
+        res = [''.join(random.choices(string.ascii_lowercase, k=5)) + ".com" for _ in range(3)]
         await msg.edit_text("🎯 **أهداف متاحة:**\n\n" + "\n".join([f"🔥 `{d}`" for d in res]), parse_mode='Markdown')
 
     elif 'قناص الثلاثي' in text:
         msg = await update.message.reply_text("💎 جاري البحث...")
-        res = [''.join(random.choices(string.ascii_lowercase + string.digits, k=3)) + ".com" for _ in range(5)]
+        res = [''.join(random.choices(string.ascii_lowercase + string.digits, k=3)) + ".com" for _ in range(3)]
         await msg.edit_text("🎯 **ثلاثي:**\n\n" + "\n".join([f"💎 `{d}`" for d in res]), parse_mode='Markdown')
-
-    elif '.com' in text:
-        status, expiry = get_domain_info(text.lower().strip())
-        await update.message.reply_text(f"📊 **تقرير:**\n🌐 `{text}`\nالحالة: {status}\nالانتهاء: `{expiry}`", parse_mode='Markdown')
 
 if __name__ == "__main__":
     if TOKEN:
