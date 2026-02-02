@@ -2,60 +2,65 @@ import os
 import random
 import string
 import requests
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- الإعدادات ---
+# --- الإعدادات الهامة ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 123456789  # استبدل هذا برقم الـ ID الخاص بك لتصلك طلبات المفاتيح
+# ضع رقم ID حسابك هنا (يمكنك الحصول عليه من بوت @userinfobot)
+ADMIN_ID = 592837465  # <--- استبدل هذا الرقم برقم ID حسابك الحقيقي
 
-# قواعد بيانات وهمية (يفضل استخدام SQL في المستقبل)
-AUTHORIZED_USERS = set()
-PENDING_KEYS = {} # {key: user_id}
+AUTHORIZED_USERS = {ADMIN_ID} # الآدمن مفعّل تلقائياً
+VALID_KEYS = {} # تخزين المفاتيح المولدة {key: status}
 
 def generate_key():
-    """توليد مفتاح عشوائي من 8 أرقام وحروف"""
-    return ''.join(random.choices(string.ascii_upper + string.digits, k=8))
+    return "DH-" + ''.join(random.choices(string.ascii_upper + string.digits, k=10))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if user_id in AUTHORIZED_USERS:
         keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'كلمات مفهومة'], ['قربت تنتهي ⏰']]
+        if user_id == ADMIN_ID:
+            keyboard.append(['توليد مفتاح جديد 🔑']) # زر خاص بالآدمن فقط
+            
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("✅ أهلاً بك مجدداً في صائد الدومينات!", reply_markup=markup)
+        await update.message.reply_text("✅ أهلاً بك يا مدير! البوت جاهز للعمل.", reply_markup=markup)
     else:
-        # إذا كان المستخدم جديد، اطلب منه المفتاح
-        await update.message.reply_text(
-            "🚫 البوت مغلق. يرجى إدخال مفتاح التفعيل للمتابعة.\n"
-            "للحصول على مفتاح، تواصل مع المطور."
-        )
+        await update.message.reply_text("🚫 الوصول مرفوض. أرسل مفتاح التفعيل الخاص بجهازك للمتابعة.")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    # 1. نظام التحقق من المفتاح
-    if user_id not in AUTHORIZED_USERS:
-        # هنا يمكنك إضافة منطق حيث ترسل أنت المفتاح للمستخدم يدوياً
-        # كمثال: لو كتب المستخدم كلمة "تفعيل" وأنت أعطيته كود
-        if text.startswith("KEY-"):
-            # في نسخة حقيقية ستقارن النص بقاعدة بياناتك
+    # 1. تفعيل مفتاح جديد
+    if text.startswith("DH-"):
+        if text in VALID_KEYS and VALID_KEYS[text] == "unused":
             AUTHORIZED_USERS.add(user_id)
-            keyboard = [['4 حروف', '5 حروف'], ['بحث عن متاح', 'كلمات مفهومة'], ['قربت تنتهي ⏰']]
-            markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-            await update.message.reply_text("🎉 تم تفعيل البوت بنجاح!", reply_markup=markup)
+            VALID_KEYS[text] = "used"
+            await update.message.reply_text("🎉 تم تفعيل جهازك بنجاح! اضغط /start")
         else:
-            await update.message.reply_text("⚠️ المفتاح غير صحيح. يرجى إرسال مفتاح يبدأ بـ KEY-")
+            await update.message.reply_text("❌ مفتاح غير صحيح أو تم استخدامه مسبقاً.")
         return
 
-    # 2. منطق البوت الأساسي (الذي قمنا ببنائه سابقاً)
-    temp_msg = await update.message.reply_text("⏳ جاري المعالجة...")
-    # ... (نفس منطق الفحص السابق) ...
-    await temp_msg.edit_text(f"نتائج البحث عن: {text}")
+    # 2. حماية البوت (منع غير المصلح لهم)
+    if user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("⚠️ يرجى تفعيل البوت أولاً.")
+        return
+
+    # 3. أمر توليد المفاتيح (للآدمن فقط)
+    if text == 'توليد مفتاح جديد 🔑' and user_id == ADMIN_ID:
+        new_key = generate_key()
+        VALID_KEYS[new_key] = "unused"
+        await update.message.reply_text(f"🔑 مفتاح جديد جاهز:\n`{new_key}`\n\nأرسله للجهاز الآخر لتفعيله.", parse_mode='Markdown')
+        return
+
+    # 4. باقي وظائف البحث (الـ 4 و 5 حروف وغيرها)
+    await update.message.reply_text(f"⏳ جاري تنفيذ طلبك لـ: {text}")
+    # (هنا تضع منطق البحث الذي كان في الكود السابق)
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
     app.run_polling(drop_pending_updates=True)
