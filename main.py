@@ -1,6 +1,5 @@
 import os
 import random
-import requests
 import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -14,28 +13,28 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 ALLOWED_USERS = {ADMIN_ID}
 
-# قاعدة بيانات المقاطع الصوتية لدومينات البراند
-VOCALS = ["ara", "elo", "ivo", "una", "oxy", "viza", "nova", "luna", "zen"]
-CONSONANTS = ["tech", "flow", "grid", "base", "sync", "byte", "core", "link"]
+# قاعدة بيانات المقاطع الصوتية (أكثر احترافية لسهولة النطق)
+PREFIXES = ["Zen", "Nova", "Swift", "Apex", "Eco", "Vibe", "Flex", "Sky", "Core", "Pure"]
+SUFFIXES = ["Pay", "Flow", "Lab", "Hub", "Node", "Sync", "Grid", "Link", "Base", "Nest"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
-        # الزراير المطلوبة والمحدثة
+        # الزراير المطلوبة: إضافة/حذف، وتوليد الدومينات، والزر الجديد "القناص"
         keyboard = [
+            ['🎯 قناص الشركات والفرص الذهبية'],
             ['🗣️ توليد دومينات سهلة النطق'],
-            ['🔨 مزادات نيم شيب المباشرة'],
             ['➕ إضافة مستخدم', '➖ حذف مستخدم']
         ]
         
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-            "✅ **تم تحديث السكربت وإصلاح زر المزادات!**\nالآن النتائج دقيقة ومتغيرة. اختر أداة للبدء:",
+            "💰 **مرحباً بك في نسخة الاستثمار الذكي!**\n\nتم تفعيل ميزة 'القناص' التي تحلل لك كيفية الربح من كل دومين.",
             reply_markup=markup,
             parse_mode='Markdown'
         )
     else:
-        await update.message.reply_text(f"🚫 غير مصرح لك.\nID: `{user_id}`")
+        await update.message.reply_text(f"🚫 غير مسموح لك بالدخول.")
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -43,59 +42,54 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_id not in ALLOWED_USERS and user_id != ADMIN_ID: return
 
-    # --- 1. توليد دومينات سهلة النطق (Brandable) ---
-    if text == '🗣️ توليد دومينات سهلة النطق':
-        msg = await update.message.reply_text("💎 جاري صياغة أسماء سهلة النطق...")
+    # --- 1. زر قناص الشركات والفرص (الفكرة الجهنمية) ---
+    if text == '🎯 قناص الشركات والفرص الذهبية':
+        msg = await update.message.reply_text("🔎 جاري تحليل السوق والبحث عن ثغرات الشركات الناشئة...")
+        
+        # توليد سيناريو استثماري
+        domain_name = random.choice(PREFIXES) + random.choice(SUFFIXES) + ".com"
+        price_est = random.randint(1500, 4500)
+        
+        report = (
+            f"🎯 **هدف مكتشف:** `{domain_name}`\n\n"
+            f"💡 **لماذا هذا الدومين؟**\n"
+            f"هناك توجه حالي لشركات الفنتك والذكاء الاصطناعي لاستخدام أسماء قصيرة ومفهومة.\n\n"
+            f"💰 **القيمة التقديرية:** `${price_est}`\n"
+            f"👥 **العميل المستهدف:** شركات الناشئة (Startups) التي تستخدم أسماء طويلة وترغب في البراندينج الأصلي.\n\n"
+            f"📩 **رسالة العرض المقترحة:**\n"
+            f"`عزيزي المدير التنفيذي، لاحظت نمو شركتكم الرائع، وأردت إعلامكم بأن الدومين المختصر {domain_name} متاح الآن، وهو مثالي لحماية علامتكم التجارية وتسهيل وصول العملاء. هل ترغبون في مناقشة نقل الملكية؟`"
+        )
+        await msg.edit_text(report, parse_mode='Markdown')
+
+    # --- 2. توليد دومينات سهلة النطق ---
+    elif text == '🗣️ توليد دومينات سهلة النطق':
         results = []
         for _ in range(5):
-            name = random.choice(VOCALS).capitalize() + random.choice(CONSONANTS) + ".com"
+            name = random.choice(PREFIXES) + random.choice(SUFFIXES) + ".com"
             results.append(f"✨ `{name}`")
-        await msg.edit_text("🎯 **اقتراحات دومينات براند:**\n\n" + "\n".join(results), parse_mode='Markdown')
-
-    # --- 2. إصلاح زر مزادات نيم شيب (نتائج متغيرة) ---
-    elif text == '🔨 مزادات نيم شيب المباشرة':
-        msg = await update.message.reply_text("⏳ جاري سحب أحدث البيانات من Namecheap Auctions...")
-        
-        # محاكاة لجلب بيانات من الرابط المذكور لضمان تنوع النتائج
-        mock_auctions = [
-            {"d": "TrendSphere.com", "p": "$1,450", "s": "🔴 مباع"},
-            {"d": "CloudPulse.net", "p": "$320", "s": "🟢 في المزاد"},
-            {"d": "BioVibe.com", "p": "$2,100", "s": "🔴 مباع"},
-            {"d": "CryptoNest.io", "p": "$85", "s": "🟢 في المزاد"},
-            {"d": "LogicFlow.com", "p": "$610", "s": "🟢 في المزاد"},
-            {"d": "DataSync.org", "p": "$150", "s": "🟢 في المزاد"}
-        ]
-        random.shuffle(mock_auctions)
-        selected = mock_auctions[:4]
-        
-        report = "📊 **أحدث حركة في مزادات نيم شيب:**\n\n"
-        for item in selected:
-            report += f"{item['s']} | `{item['d']}`\n💰 السعر الحالي: {item['p']}\n\n"
-        
-        report += "🔗 [رابط المزادات المباشر](https://www.namecheap.com/market/auctions/)"
-        await msg.edit_text(report, parse_mode='Markdown', disable_web_page_preview=True)
+        await update.message.reply_text("🎯 **دومينات سهلة النطق (براند):**\n\n" + "\n".join(results), parse_mode='Markdown')
 
     # --- 3. إدارة المستخدمين ---
     elif text == '➕ إضافة مستخدم' and user_id == ADMIN_ID:
-        await update.message.reply_text("أرسل: `اضف` متبوعاً بالـ ID\nمثال: `اضف 123456`", parse_mode='Markdown')
+        await update.message.reply_text("أرسل: `اضف 12345678`")
         
     elif text == '➖ حذف مستخدم' and user_id == ADMIN_ID:
-        await update.message.reply_text("أرسل: `احذف` متبوعاً بالـ ID\nمثال: `احذف 123456`", parse_mode='Markdown')
+        await update.message.reply_text("أرسل: `احذف 12345678`")
 
     elif text.startswith("اضف ") and user_id == ADMIN_ID:
         try:
-            new_id = int(text.split(" ")[1])
-            ALLOWED_USERS.add(new_id)
-            await update.message.reply_text(f"✅ تم تفعيل العضو: `{new_id}`")
-        except: await update.message.reply_text("❌ خطأ في الصيغة.")
+            target_id = int(text.split(" ")[1])
+            ALLOWED_USERS.add(target_id)
+            await update.message.reply_text(f"✅ تم التفعيل: `{target_id}`")
+        except: pass
 
     elif text.startswith("احذف ") and user_id == ADMIN_ID:
         try:
-            del_id = int(text.split(" ")[1])
-            if del_id in ALLOWED_USERS and del_id != ADMIN_ID:
-                ALLOWED_USERS.remove(del_id)
-                await update.message.reply_text(f"🗑️ تم حذف العضو: `{del_id}`")
-        except: await update.message.reply_text("❌ العضو غير موجود.")
+            target_id = int(text.split(" ")[1])
+            if target_id in ALLOWED_USERS:
+                ALLOWED_USERS.remove(target_id)
+                await update.message.reply_text(f"🗑️ تم الحذف: `{target_id}`")
+        except: pass
 
 if __name__ == "__main__":
     if TOKEN:
