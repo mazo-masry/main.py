@@ -7,78 +7,111 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # --- الإعدادات الأساسية ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 665829780  # معرفك الثابت لضمان الصلاحية
+ADMIN_ID = 665829780  # معرفك الخاص لضمان صلاحيات الإدارة
 
+# الذاكرة المؤقتة للمستخدمين المفعلين والمفاتيح (تصفر عند إعادة تشغيل السيرفر)
 AUTHORIZED_USERS = {ADMIN_ID}
 VALID_KEYS = {}
 
 def generate_key():
+    """توليد مفتاح تفعيل فريد يبدأ بـ DH-"""
     return "DH-" + ''.join(random.choices(string.ascii_upper + string.digits, k=10))
+
+def get_domain_info(domain):
+    """فحص حالة الدومين وتاريخ الانتهاء بدقة"""
+    try:
+        url = f"https://rdap.verisign.com/com/v1/domain/{domain}"
+        res = requests.get(url, timeout=5)
+        if res.status_code == 404:
+            return "متاح ✅", "N/A"
+        
+        data = res.json()
+        expiry = "غير معروف"
+        # البحث عن تاريخ الانتهاء في أحداث RDAP
+        for event in data.get("events", []):
+            if event.get("eventAction") == "expiration":
+                expiry = event.get("eventDate").split("T")[0]
+        return "محجوز 🔒", expiry
+    except:
+        return "خطأ في الفحص ⚠️", ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    
     if user_id in AUTHORIZED_USERS:
+        # لوحة التحكم تظهر فقط للأشخاص المفعلين
         keyboard = [
             ['4 حروف', '5 حروف'],
             ['بحث عن متاح', 'قربت تنتهي ⏰'],
             ['توليد مفتاح جديد 🔑']
         ]
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text(f"✅ أهلاً بك يا مدير!\nاستخدم الأزرار أو أرسل /generate للحصول على مفتاح.", reply_markup=markup)
+        await update.message.reply_text(
+            f"✅ أهلاً بك يا مدير!\nالبوت جاهز للعمل. يمكنك استخدام الأزرار أو إرسال /generate للحصول على مفتاح.",
+            reply_markup=markup
+        )
     else:
-        await update.message.reply_text("🚫 البوت مغلق. أرسل مفتاح التفعيل للمتابعة.")
+        await update.message.reply_text("🚫 الوصول مرفوض. يرجى إدخال مفتاح التفعيل للمتابعة.")
 
-async def gen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر مباشر لتوليد المفتاح لضمان العمل في حال فشل الزر"""
+async def generate_key_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر مباشر لتوليد المفتاح لضمان العمل في حال فشل الأزرار"""
     user_id = update.effective_user.id
     if user_id == ADMIN_ID:
-        key = generate_key()
-        VALID_KEYS[key] = "unused"
-        await update.message.reply_text(f"🔑 مفتاح جديد:\n`{key}`", parse_mode='Markdown')
+        new_key = generate_key()
+        VALID_KEYS[new_key] = "unused"
+        await update.message.reply_text(f"🔑 **مفتاح تفعيل جديد:**\n\n`{new_key}`", parse_mode='Markdown')
 
-async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
-    # تفعيل المفاتيح
+    # 1. نظام تفعيل المفاتيح للمستخدمين الآخرين
     if text.startswith("DH-"):
         if text in VALID_KEYS and VALID_KEYS[text] == "unused":
             AUTHORIZED_USERS.add(user_id)
             VALID_KEYS[text] = "used"
-            await update.message.reply_text("🎉 تم التفعيل بنجاح! اضغط /start")
+            await update.message.reply_text("🎉 تم تفعيل جهازك بنجاح! اضغط /start لاستخدام القائمة.")
         else:
-            await update.message.reply_text("❌ مفتاح غير صحيح.")
+            await update.message.reply_text("❌ مفتاح غير صحيح أو تم استخدامه مسبقاً.")
         return
 
-    if user_id not in AUTHORIZED_USERS: return
-
-    # الحل النهائي للمفتاح: البحث عن الكلمة داخل النص
-    if "توليد" in text and user_id == ADMIN_ID:
-        key = generate_key()
-        VALID_KEYS[key] = "unused"
-        await update.message.reply_text(f"🔑 مفتاح جديد:\n`{key}`", parse_mode='Markdown')
+    # 2. حماية البوت: منع غير المصرح لهم
+    if user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("⚠️ يرجى التفعيل أولاً.")
         return
 
-    # أوامر البحث البسيطة لمنع الـ Crash
+    # 3. معالجة زر "توليد مفتاح" (حل مشكلة المطابقة)
+    if ("توليد" in text) and user_id == ADMIN_ID:
+        new_key = generate_key()
+        VALID_KEYS[new_key] = "unused"
+        await update.message.reply_text(f"🔑 **مفتاح تفعيل جديد:**\n\n`{new_key}`", parse_mode='Markdown')
+        return
+
+    # 4. تنفيذ أوامر البحث
+    msg = await update.message.reply_text("⏳ جاري المعالجة...")
+    
     if '4' in text or '5' in text:
         length = 4 if '4' in text else 5
-        res = [''.join(random.choices(string.ascii_lowercase, k=length)) + ".com" for _ in range(5)]
-        await update.message.reply_text(f"🔎 مقترحات {length} حروف:\n" + "\n".join(res))
-    elif 'تنتهي' in text or 'متاح' in text:
-        await update.message.reply_text("⏳ ميزة الفحص المتقدم قيد الصيانة لضمان استقرار السيرفر.")
+        res = [''.join(random.choices(string.ascii_lowercase, k=length)) + ".com" for _ in range(8)]
+        response = f"🔎 مقترحات {length} حروف:\n\n" + "\n".join(res)
+        
+    elif 'متاح' in text:
+        found = []
+        for _ in range(10):
+            d = ''.join(random.choices(string.ascii_lowercase, k=5)) + ".com"
+            status, _ = get_domain_info(d)
+            if status == "متاح ✅": found.append(d)
+            if len(found) >= 3: break
+        response = "💎 دومينات متاحة حالياً:\n\n" + "\n".join(found) if found else "لم أجد متاحاً حالياً، جرب ثانية."
 
-if __name__ == "__main__":
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("generate", gen_cmd)) # أمر إضافي كاحتياط
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
-    app.run_polling(drop_pending_updates=True)
-        response = "🔔 دومينات قربت تنتهي:\n\n" + "\n\n".join(expiring)
-
-    elif 'كلمة' in text:
-        words = ["nova", "fast", "web", "smart", "go"]
-        res = [random.choice(words) + ''.join(random.choices(string.ascii_lowercase, k=2)) + ".com" for _ in range(5)]
-        response = "💡 دومينات بكلمات مفهومة:\n\n" + "\n".join(res)
+    elif 'تنتهي' in text:
+        expiring = []
+        for _ in range(3):
+            d = ''.join(random.choices(string.ascii_lowercase, k=4)) + ".com"
+            status, expiry = get_domain_info(d)
+            if status == "محجوز 🔒":
+                expiring.append(f"⏰ {d}\n📅 ينتهي: {expiry}")
+        response = "🔔 دومينات قربت تنتهي:\n\n" + "\n\n".join(expiring) if expiring else "حاول مجدداً للبحث في عينة أخرى."
     
     else:
         response = "يرجى اختيار أمر من القائمة بالأسفل."
@@ -87,7 +120,11 @@ if __name__ == "__main__":
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
+    
+    # إضافة الأوامر والرسائل
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("generate", generate_key_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all_messages))
+    
     print("🤖 البوت يعمل الآن بنجاح...")
     app.run_polling(drop_pending_updates=True)
