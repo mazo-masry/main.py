@@ -1,105 +1,116 @@
 import os
-import requests
-from bs4 import BeautifulSoup
+import time
 import logging
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات لمراقبة Railway
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+# إعداد السجلات
+logging.basicConfig(level=logging.INFO)
 
-# --- الإعدادات ---
+# الإعدادات
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
-# تخزين الكوكي في الذاكرة (يفضل مستقبلاً وضعه في Database)
-SESSION_DATA = {"cookie": ""}
 
-# دالة السحب المركزية من حسابك
-def fetch_domains_from_account(endpoint, limit=10):
-    url = f"https://member.expireddomains.net/domains/{endpoint}/"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Cookie': SESSION_DATA["cookie"],
-        'Referer': 'https://member.expireddomains.net/'
-    }
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        if "Login" in response.text or response.status_code == 403:
-            return "❌ خطأ: جلسة الدخول انتهت. اطلب من الأدمن تحديث الـ Cookie."
-            
-        soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find('table', {'class': 'listing'})
-        if not table: return "⚠️ لا توجد بيانات حالياً في هذا القسم."
+# إعداد متصفح سيلينيوم (Chrome Headless)
+chrome_options = Options()
+chrome_options.add_argument("--headless")
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
+driver = None # سيتم تشغيله عند طلب الأدمن
 
-        rows = table.find_all('tr')[1:limit+1]
-        results = []
-        for row in rows:
-            cols = row.find_all('td')
-            if len(cols) > 5:
-                results.append({
-                    "domain": cols[0].get_text(strip=True),
-                    "bl": cols[1].get_text(strip=True), # Backlinks
-                    "status": cols[3].get_text(strip=True) # تاريخ الحذف أو الحالة
-                })
-        return results
-    except Exception as e:
-        return f"❌ خطأ تقني: {str(e)}"
-
-# --- أوامر الأدمن ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID:
-        kb = [['⚙️ تحديث جلسة الدخول (Cookie)'], ['📊 معاينة نتائج الحساب']]
-        msg = "👑 **لوحة تحكم الأدمن**\nيرجى تحديث الكوكي لضمان عمل البوت للزبائن."
+        kb = [['🔑 تسجيل الدخول للموقع'], ['🔍 فحص حالة الحساب']]
+        msg = "🛠 **لوحة تحكم الأدمن**\nاضغط على الزر للبدء في ربط حسابك بالموقع."
     else:
-        kb = [['🆕 أحدث 10 دومينات محذوفة (.com)'], ['⏳ دومينات ستنتهي قريباً']]
-        msg = "🌟 **مرحباً بك في بوت قناص الدومينات**\nاختر من القائمة بالأسفل لجلب أحدث النتائج العالمية."
+        kb = [['🆕 Expired .com', '⏳ Pending Delete']]
+        msg = "🌟 **مرحباً بك في قناص الدومينات**\nسيتم جلب النتائج من حساب الأدمن الموثق."
     
-    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True), parse_mode='Markdown')
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
-async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global driver
     user_id = update.effective_user.id
     text = update.message.text
 
-    # --- منطق الأدمن لضبط الحساب ---
-    if user_id == ADMIN_ID:
-        if text == '⚙️ تحديث جلسة الدخول (Cookie)':
-            await update.message.reply_text("أرسل الـ Cookie الجديد من المتصفح (Network -> Headers):")
-            context.user_data['state'] = 'WAIT_COOKIE'
-            return
-        
-        if context.user_data.get('state') == 'WAIT_COOKIE':
-            SESSION_DATA["cookie"] = text
-            context.user_data['state'] = None
-            await update.message.reply_text("✅ تم تحديث الجلسة بنجاح! البوت الآن جاهز لخدمة الزبائن.")
-            return
+    if user_id != ADMIN_ID: return
 
-    # --- منطق المستخدمين (الزبائن) ---
-    endpoint = ""
-    title = ""
+    if text == '🔑 تسجيل الدخول للموقع':
+        await update.message.reply_text("👤 أرسل الآن: **اليوزر نيم** و **الباسورد** مفصولين بمسافة\nمثال: `myuser mypass123`", parse_mode='Markdown')
+        context.user_data['state'] = 'WAIT_CREDS'
+
+    elif context.user_data.get('state') == 'WAIT_CREDS':
+        try:
+            u, p = text.split(" ")
+            context.user_data['u'], context.user_data['p'] = u, p
+            
+            # تشغيل المتصفح والدخول لصفحة اللوجن
+            driver = webdriver.Chrome(options=chrome_options)
+            driver.get("https://member.expireddomains.net/login/")
+            
+            driver.find_element(By.ID, "inputLogin").send_keys(u)
+            driver.find_element(By.ID, "inputPassword").send_keys(p)
+            
+            # أخذ لقطة شاشة لكود التحقق (Captcha) وإرسالها للأدمن
+            driver.save_screenshot("captcha.png")
+            await update.message.reply_photo(photo=open("captcha.png", "rb"), caption="🖼 أرسل كود التحقق (Captcha) الظاهر في الصورة:")
+            context.user_data['state'] = 'WAIT_CAPTCHA'
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطأ: {e}")
+
+    elif context.user_data.get('state') == 'WAIT_CAPTCHA':
+        try:
+            captcha_code = text
+            driver.find_element(By.NAME, "captcha").send_keys(captcha_code)
+            driver.find_element(By.TAG_NAME, "button").click() # زر Login
+            
+            time.sleep(3) # انتظار التحميل
+            if "login" not in driver.current_url.lower():
+                await update.message.reply_text("✅ **تم تسجيل الدخول بنجاح!**\nالجلسة الآن نشطة وسيقوم البوت بسحب البيانات للزبائن.")
+                context.user_data['state'] = 'LOGGED_IN'
+            else:
+                await update.message.reply_text("❌ فشل تسجيل الدخول. ربما الكود خاطئ.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطأ: {e}")
+
+# --- وظيفة سحب الدومينات للزبائن ---
+async def fetch_for_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global driver
+    if not driver:
+        await update.message.reply_text("⚠️ البوت غير متصل بحساب الأدمن حالياً.")
+        return
+
+    msg = await update.message.reply_text("⏳ جاري جلب أحدث 10 دومينات من الحساب...")
     
-    if text == '🆕 أحدث 10 دومينات محذوفة (.com)':
-        endpoint = "expiredcom"
-        title = "🆕 أحدث دومينات .com المحذوفة"
-    elif text == '⏳ دومينات ستنتهي قريباً':
-        endpoint = "pendingdelete"
-        title = "⏳ دومينات في مرحلة الحذف القريب"
-
-    if endpoint:
-        msg = await update.message.reply_text("⏳ جاري جلب البيانات من الحساب الخاص...")
-        data = fetch_domains_from_account(endpoint)
+    try:
+        # التوجه لصفحة الـ Expired .com
+        driver.get("https://member.expireddomains.net/domains/expiredcom/")
+        time.sleep(2)
         
-        if isinstance(data, str): # في حالة وجود خطأ
-            await msg.edit_text(data)
-        else:
-            report = f"🎯 **{title}:**\n\n"
-            for item in data:
-                report += f"🌐 `{item['domain']}`\n🔗 BL: `{item['bl']}` | 📅 `{item['status']}`\n\n"
-            await msg.edit_text(report, parse_mode='Markdown')
+        # استخراج البيانات من الجدول
+        rows = driver.find_elements(By.CSS_SELECTOR, ".listing tr")[1:11]
+        report = "🎯 **أحدث الدومينات المتاحة للشراء:**\n\n"
+        
+        for row in rows:
+            cols = row.find_elements(By.TAG_NAME, "td")
+            if len(cols) > 5:
+                domain = cols[0].text
+                bl = cols[1].text # Backlinks
+                status = cols[3].text
+                report += f"🌐 `{domain}`\n🔗 BL: {bl} | 📅 {status}\n\n"
+        
+        await msg.edit_text(report, parse_mode='Markdown')
+    except Exception as e:
+        await msg.edit_text(f"❌ حدث خطأ أثناء السحب: {e}")
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
-    print("Bot is running on Railway...")
+    app.add_handler(MessageHandler(filters.Regex('🔑 تسجيل الدخول للموقع') | filters.Regex('🆕 Expired .com'), handle_admin if ADMIN_ID else fetch_for_users))
+    # إضافة معالج عام للرسائل النصية للحالات (States)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin))
     app.run_polling()
