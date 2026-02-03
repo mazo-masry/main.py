@@ -2,7 +2,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import logging
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # إعداد السجلات
@@ -12,88 +12,84 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 
-# الكوكي الخاص بك تم دمجه هنا
-MY_COOKIE = "PHPSESSID=gnLJ2C YEKFs-aYk; WicaUhziByzwOTq7rZNyoVsTP=21.2pjQwd05vkkSBnWlH02hfVb; 4w9NAlmhgvr7EMykMSe-5gG1uT2MxLYxT9Vc5kEbWCOC=M0q3ArfR8LDRpkA5QD"
+# مخزن الجلسة (سيتم حفظ الكوكي هنا برمجياً)
+SESSION_DATA = {"cookie": ""}
+# قائمة المستخدمين المسموح لهم
+ALLOWED_USERS = {ADMIN_ID}
 
-# قائمة المستخدمين المسموح لهم (يمكنك إضافة IDs هنا)
-ALLOWED_USERS = {ADMIN_ID} 
-
-# دالة جلب البيانات
-def get_expired_domains(endpoint, limit=10):
+def fetch_data(endpoint, cookie):
     url = f"https://www.expireddomains.net/domains/{endpoint}/"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Cookie': MY_COOKIE,
+        'Cookie': cookie,
         'Referer': 'https://www.expireddomains.net/'
     }
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if "Login" in response.text:
-            return "❌ انتهت صلاحية الجلسة (الكوكي). يرجى تحديثه من المتصفح."
+            return "EXPIRED"
             
         soup = BeautifulSoup(response.text, 'html.parser')
         table = soup.find('table', {'class': 'listing'})
-        if not table: return "⚠️ لا توجد بيانات حالياً في هذا القسم."
+        if not table: return "EMPTY"
 
-        rows = table.find_all('tr')[1:limit+1]
+        rows = table.find_all('tr')[1:11]
         results = []
         for row in rows:
             cols = row.find_all('td')
             if len(cols) > 5:
                 results.append({
                     "domain": cols[0].get_text(strip=True),
-                    "bl": cols[1].get_text(strip=True),   # Backlinks
-                    "dp": cols[2].get_text(strip=True),   # Domain Pop
-                    "status": cols[3].get_text(strip=True) # Date/Status
+                    "bl": cols[1].get_text(strip=True),
+                    "dp": cols[2].get_text(strip=True),
+                    "status": cols[3].get_text(strip=True)
                 })
         return results
-    except Exception as e:
-        return f"❌ خطأ: {str(e)}"
+    except: return "ERROR"
 
-# --- معالجة الأوامر ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID:
         kb = [
             ['🆕 جلب .com', '🌐 جلب .net'],
-            ['⏳ قريباً (Pending)', '➕ إضافة مستخدم'],
-            ['➖ حذف مستخدم', '📊 قائمة المستخدمين']
+            ['⏳ قريباً (Pending)', '⚙️ تحديث الجلسة (الكوكي)'],
+            ['➕ إضافة مستخدم', '📊 قائمة المستخدمين']
         ]
-        msg = "👑 **مرحباً أيها الأدمن**\nالكوكي مربوط وجاهز. تحكم في المستخدمين أو اسحب الدومينات الآن."
+        msg = "👑 **لوحة تحكم الأدمن**\nجاهز لجلب البيانات. إذا توقف البوت، قم بتحديث الكوكي."
     elif user_id in ALLOWED_USERS:
         kb = [['🆕 جلب .com', '🌐 جلب .net'], ['⏳ قريباً (Pending)']]
-        msg = "🌟 **مرحباً بك في الخدمة المميزة**\nيمكنك استخراج الدومينات المحذوفة حالياً."
+        msg = "🌟 **مرحباً بك**\nيمكنك البحث عن الدومينات الآن."
     else:
-        await update.message.reply_text("🚫 نعتذر، أنت غير مسجل في الخدمة. تواصل مع الأدمن.")
+        await update.message.reply_text("🚫 غير مصرح لك. تواصل مع الأدمن.")
         return
-
     await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
-async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
+    state = context.user_data.get('state')
 
-    # --- إدارة المستخدمين (للأدمن فقط) ---
+    # --- إدارة الكوكي والمستخدمين (للأدمن) ---
     if user_id == ADMIN_ID:
+        if text == '⚙️ تحديث الجلسة (الكوكي)':
+            await update.message.reply_text("📥 أرسل الكوكي الجديد من المتصفح الآن:")
+            context.user_data['state'] = 'WAIT_COOKIE'
+            return
+        if state == 'WAIT_COOKIE':
+            SESSION_DATA["cookie"] = text.strip()
+            context.user_data['state'] = None
+            await update.message.reply_text("✅ تم تحديث الجلسة بنجاح! جرب السحب الآن.")
+            return
         if text == '➕ إضافة مستخدم':
-            await update.message.reply_text("أرسل ID المستخدم المراد إضافته:")
-            context.user_data['action'] = 'ADD'
+            await update.message.reply_text("أرسل ID المستخدم:")
+            context.user_data['state'] = 'ADD_USER'
             return
-        elif text == '➖ حذف مستخدم':
-            await update.message.reply_text("أرسل ID المستخدم المراد حذفه:")
-            context.user_data['action'] = 'DEL'
-            return
-        elif text == '📊 قائمة المستخدمين':
-            await update.message.reply_text(f"قائمة المصرح لهم: `{list(ALLOWED_USERS)}`", parse_mode='Markdown')
-            return
-
-        if context.user_data.get('action') == 'ADD':
+        if state == 'ADD_USER':
             try:
-                new_id = int(text)
-                ALLOWED_USERS.add(new_id)
-                await update.message.reply_text(f"✅ تم إضافة {new_id} بنجاح.")
-            except: await update.message.reply_text("❌ يرجى إرسال ID صحيح (أرقام فقط).")
-            context.user_data['action'] = None
+                ALLOWED_USERS.add(int(text))
+                await update.message.reply_text(f"✅ تم إضافة {text}")
+            except: await update.message.reply_text("❌ ID خطأ")
+            context.user_data['state'] = None
             return
 
     # --- جلب الدومينات ---
@@ -104,20 +100,25 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text == '⏳ قريباً (Pending)': endpoint = "pendingdelete"
 
         if endpoint:
-            m = await update.message.reply_text("⏳ جاري سحب البيانات من الحساب...")
-            data = get_expired_domains(endpoint)
+            if not SESSION_DATA["cookie"]:
+                await update.message.reply_text("⚠️ الأدمن لم يقم بضبط الكوكي بعد.")
+                return
             
-            if isinstance(data, str):
-                await m.edit_text(data)
+            m = await update.message.reply_text("⏳ جاري سحب البيانات...")
+            data = fetch_data(endpoint, SESSION_DATA["cookie"])
+
+            if data == "EXPIRED":
+                await m.edit_text("❌ انتهت صلاحية الكوكي. يرجى من الأدمن تحديثه.")
+            elif data == "EMPTY" or data == "ERROR":
+                await m.edit_text("⚠️ فشل جلب البيانات. تأكد من الكوكي أو الموقع.")
             else:
                 res = f"🎯 **أحدث 10 نتائج ({text}):**\n\n"
                 for item in data:
-                    res += f"🌐 `{item['domain']}`\n🔗 BL: `{item['bl']}` | 🏗️ DP: `{item['dp']}` | 📅 `{item['status']}`\n\n"
+                    res += f"🌐 `{item['domain']}`\n🔗 BL: `{item['bl']}` | 📅 `{item['status']}`\n\n"
                 await m.edit_text(res, parse_mode='Markdown')
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
-    print("Bot Started...")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
     app.run_polling()
