@@ -1,33 +1,29 @@
 import os
 import logging
-import whois
 import random
-import time
+import requests
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات لمراقبة الأداء على Railway
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+# إعداد السجلات لمراقبة Railway
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- الإعدادات ---
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
-ALLOWED_USERS = {ADMIN_ID}
+# استخدام قائمة ديناميكية للمستخدمين
+allowed_users = {ADMIN_ID}
 
-# قائمة المقاطع الصوتية لإنشاء أسماء سهلة النطق
-PREFIXES = ["Zen", "Sky", "Nova", "Pure", "Vibe", "Flex", "Swift", "Core", "Cloud", "Luna"]
-SUFFIXES = ["ly", "ify", "hub", "lab", "zone", "base", "flow", "grid", "wave", "nest"]
+# قوائم المقاطع الصوتية لأسماء براندات عالمية
+PREFIXES = ["Zon", "Aura", "Velo", "Kira", "Lux", "Solo", "Moxi", "Zync", "Vora", "Exo"]
+SUFFIXES = ["ly", "io", "via", "ora", "go", "it", "do", "za", "on", "up"]
 
-def generate_brandable_name():
-    """توليد اسم براند احترافي سهل النطق"""
-    return random.choice(PREFIXES) + random.choice(SUFFIXES)
-
-def check_domain_status(domain):
-    """فحص حالة الدومين عالمياً"""
+def check_domain_api(domain):
+    """فحص سريع جداً باستخدام API خارجي خفيف"""
     try:
-        w = whois.whois(domain)
-        if not w.domain_name:
+        # نستخدم طلب DNS بسيط (سريع جداً ولا يسبب Crash)
+        response = requests.get(f"https://rdap.org/domain/{domain}", timeout=3)
+        if response.status_code == 404:
             return "✅ متاح"
         return "🔒 محجوز"
     except:
@@ -35,16 +31,16 @@ def check_domain_status(domain):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
+    if user_id in allowed_users:
         keyboard = [
-            ['🚀 توليد وقنص 10 براندات احترافية'],
+            ['🚀 توليد وقنص 5 براندات احترافية'],
             ['➕ إضافة مستخدم', '➖ حذف مستخدم']
         ]
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-            "💎 **مرحباً بك في مصنع البراندات!**\n\n"
-            "هذا الإصدار يولد أسماء قصيرة، سهلة النطق، ومناسبة للمشاريع الناشئة.\n"
-            "اضغط على الزر لتبدأ الماكينة في العمل.",
+            "💎 **مصنع البراندات المستقر 1.0**\n\n"
+            "تم إصلاح الأزرار وتطوير نظام الفحص السريع.\n"
+            "اضغط على الأزرار بالأسفل - ستعمل فوراً.",
             reply_markup=markup, parse_mode='Markdown'
         )
 
@@ -52,45 +48,56 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    if user_id not in ALLOWED_USERS and user_id != ADMIN_ID: return
+    if user_id not in allowed_users:
+        return
 
-    if text == '🚀 توليد وقنص 10 براندات احترافية':
-        msg = await update.message.reply_text("🏭 جاري ابتكار أسماء وفحص توفرها عالمياً...")
+    # --- 1. زر التوليد والفحص (تم تسريعه) ---
+    if text == '🚀 توليد وقنص 5 براندات احترافية':
+        msg = await update.message.reply_text("🏭 جاري ابتكار أسماء وفحصها...")
         
-        tlds = [".com", ".net", ".io", ".xyz", ".ai"]
-        final_report = "🎯 **أفضل البراندات المتاحة حالياً:**\n\n"
+        tlds = [".com", ".net", ".org"]
+        report = "🎯 **نتائج القنص السريع:**\n\n"
         
-        for _ in range(10):
-            brand = generate_brandable_name()
-            results = []
-            # فحص الاسم في أهم الامتدادات
+        for _ in range(5):
+            name = (random.choice(PREFIXES) + random.choice(SUFFIXES)).lower()
+            available_in = []
             for tld in tlds:
-                full_domain = (brand + tld).lower()
-                status = check_domain_status(full_domain)
-                if status == "✅ متاح":
-                    results.append(tld)
+                if check_domain_api(name + tld) == "✅ متاح":
+                    available_in.append(tld)
             
-            if results:
-                final_report += f"✨ البراند: **{brand}**\n🔗 متاح في: `{', '.join(results)}`\n\n"
-            
-            # تأخير بسيط لتجنب حظر سيرفرات WHOIS
-            time.sleep(0.5)
+            if available_in:
+                report += f"✨ **{name.capitalize()}**\n🔗 متاح: `{', '.join(available_in)}`\n\n"
+        
+        await msg.edit_text(report, parse_mode='Markdown')
 
-        await msg.edit_text(final_report, parse_mode='Markdown')
+    # --- 2. زر إضافة مستخدم (مصلح) ---
+    elif text == '➕ إضافة مستخدم':
+        await update.message.reply_text("أرسل الرقم هكذا: `اضف 12345`")
+    
+    elif text.startswith("اضف "):
+        if user_id == ADMIN_ID:
+            try:
+                new_id = int(text.split(" ")[1])
+                allowed_users.add(new_id)
+                await update.message.reply_text(f"✅ تم تفعيل العضو: `{new_id}`")
+            except:
+                await update.message.reply_text("❌ خطأ في الرقم.")
 
-    # أزرار الإدارة
-    elif text.startswith("اضف ") and user_id == ADMIN_ID:
-        try:
-            new_id = int(text.split(" ")[1])
-            ALLOWED_USERS.add(new_id)
-            await update.message.reply_text(f"✅ تم تفعيل العضو: `{new_id}`")
-        except: pass
-    elif text.startswith("احذف ") and user_id == ADMIN_ID:
-        try:
-            del_id = int(text.split(" ")[1])
-            if del_id in ALLOWED_USERS: ALLOWED_USERS.remove(del_id)
-            await update.message.reply_text(f"🗑 تم حذف العضو: `{del_id}`")
-        except: pass
+    # --- 3. زر حذف مستخدم (مصلح) ---
+    elif text == '➖ حذف مستخدم':
+        await update.message.reply_text("أرسل الرقم هكذا: `احذف 12345`")
+    
+    elif text.startswith("احذف "):
+        if user_id == ADMIN_ID:
+            try:
+                del_id = int(text.split(" ")[1])
+                if del_id in allowed_users:
+                    allowed_users.remove(del_id)
+                    await update.message.reply_text(f"🗑 تم حذف العضو: `{del_id}`")
+                else:
+                    await update.message.reply_text("❌ العضو غير موجود.")
+            except:
+                await update.message.reply_text("❌ خطأ في الرقم.")
 
 if __name__ == "__main__":
     if TOKEN:
