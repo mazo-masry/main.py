@@ -1,11 +1,12 @@
 import os
 import logging
 import whois
-import requests
+import random
+import time
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات لمنع الانهيار ومراقبة الأداء
+# إعداد السجلات لمراقبة الأداء على Railway
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -14,69 +15,70 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 ALLOWED_USERS = {ADMIN_ID}
 
-# دالة الفحص الذكي (تتجنب الحظر والتعليق)
-def check_domain_free(domain):
+# قائمة المقاطع الصوتية لإنشاء أسماء سهلة النطق
+PREFIXES = ["Zen", "Sky", "Nova", "Pure", "Vibe", "Flex", "Swift", "Core", "Cloud", "Luna"]
+SUFFIXES = ["ly", "ify", "hub", "lab", "zone", "base", "flow", "grid", "wave", "nest"]
+
+def generate_brandable_name():
+    """توليد اسم براند احترافي سهل النطق"""
+    return random.choice(PREFIXES) + random.choice(SUFFIXES)
+
+def check_domain_status(domain):
+    """فحص حالة الدومين عالمياً"""
     try:
-        # فحص أولي سريع
         w = whois.whois(domain)
         if not w.domain_name:
             return "✅ متاح"
         return "🔒 محجوز"
-    except Exception as e:
-        # إذا لم يجد الدومين في السجلات العالمية فهذا يعني أنه متاح غالباً
+    except:
         return "✅ متاح"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
         keyboard = [
-            ['🎯 فحص شامل (Com/Net/Org/Xyz)'],
+            ['🚀 توليد وقنص 10 براندات احترافية'],
             ['➕ إضافة مستخدم', '➖ حذف مستخدم']
         ]
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-            "💎 **تم تفعيل صائد الدومينات الحر!**\n\n"
-            "نسيان جودادي هو أفضل قرار. الآن يمكنك الفحص بحرية وبدون مفاتيح API.\n"
-            "استخدم الأزرار بالأسفل لبدء القنص.",
+            "💎 **مرحباً بك في مصنع البراندات!**\n\n"
+            "هذا الإصدار يولد أسماء قصيرة، سهلة النطق، ومناسبة للمشاريع الناشئة.\n"
+            "اضغط على الزر لتبدأ الماكينة في العمل.",
             reply_markup=markup, parse_mode='Markdown'
         )
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
-    state = context.user_data.get('state')
 
     if user_id not in ALLOWED_USERS and user_id != ADMIN_ID: return
 
-    # --- 1. منطق الفحص الشامل ---
-    if text == '🎯 فحص شامل (Com/Net/Org/Xyz)':
-        await update.message.reply_text("✏️ أرسل الاسم الذي تريد قنصه (مثلاً: `bestoffer`):")
-        context.user_data['state'] = 'WAIT_NAME'
-        return
+    if text == '🚀 توليد وقنص 10 براندات احترافية':
+        msg = await update.message.reply_text("🏭 جاري ابتكار أسماء وفحص توفرها عالمياً...")
+        
+        tlds = [".com", ".net", ".io", ".xyz", ".ai"]
+        final_report = "🎯 **أفضل البراندات المتاحة حالياً:**\n\n"
+        
+        for _ in range(10):
+            brand = generate_brandable_name()
+            results = []
+            # فحص الاسم في أهم الامتدادات
+            for tld in tlds:
+                full_domain = (brand + tld).lower()
+                status = check_domain_status(full_domain)
+                if status == "✅ متاح":
+                    results.append(tld)
+            
+            if results:
+                final_report += f"✨ البراند: **{brand}**\n🔗 متاح في: `{', '.join(results)}`\n\n"
+            
+            # تأخير بسيط لتجنب حظر سيرفرات WHOIS
+            time.sleep(0.5)
 
-    if state == 'WAIT_NAME':
-        base_name = text.strip().lower().replace(" ", "")
-        context.user_data['state'] = None
-        
-        msg = await update.message.reply_text(f"📡 جاري الاتصال بالسجلات العالمية لفحص `{base_name}`...")
-        
-        tlds = [".com", ".net", ".org", ".xyz", ".me", ".info"]
-        report = f"📊 **تقرير التوفر العالمي لـ `{base_name}`:**\n\n"
-        
-        for tld in tlds:
-            full_domain = base_name + tld
-            status = check_domain_free(full_domain)
-            report += f"{status} | `{full_domain}`\n"
-        
-        await msg.edit_text(report, parse_mode='Markdown')
-        return
+        await msg.edit_text(final_report, parse_mode='Markdown')
 
-    # --- 2. منطق الإدارة (إضافة/حذف) تم التأكد منها ---
-    if text == '➕ إضافة مستخدم' and user_id == ADMIN_ID:
-        await update.message.reply_text("أرسل المعرف للإضافة: `اضف 12345`", parse_mode='Markdown')
-    elif text == '➖ حذف مستخدم' and user_id == ADMIN_ID:
-        await update.message.reply_text("أرسل المعرف للحذف: `احذف 12345`", parse_mode='Markdown')
-    
+    # أزرار الإدارة
     elif text.startswith("اضف ") and user_id == ADMIN_ID:
         try:
             new_id = int(text.split(" ")[1])
@@ -95,5 +97,4 @@ if __name__ == "__main__":
         app = Application.builder().token(TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
-        # استخدام drop_pending_updates لمنع تراكم الرسايل والـ Crash
         app.run_polling(drop_pending_updates=True)
