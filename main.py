@@ -14,7 +14,7 @@ ADMIN_ID = 665829780
 # قاعدة بيانات المستخدمين
 ALLOWED_USERS = {ADMIN_ID}
 
-# قاموس الكلمات لتوليد البراندات (تم إضافة قسم الخليج)
+# قاموس الكلمات لتوليد البراندات
 BRAND_DATA = {
     "مصانع": ["Mfg", "Fab", "Ind", "Works", "Tech", "Line", "Forge", "Mill"],
     "مطاعم": ["Tasty", "Bite", "Chef", "Dish", "Eats", "Grill", "Foody", "Kitchen"],
@@ -24,37 +24,41 @@ BRAND_DATA = {
     "توصيل": ["Dash", "Drop", "Swift", "Zoom", "Go", "Fetch", "Way"],
     "مستشفيات": ["Med", "Care", "Health", "Cure", "Clinic", "Life", "Heal"],
     "AI": ["AI", "Bot", "Neural", "Mind", "Logic", "Data", "Smart", "IQ"],
-    "نجارة": ["Wood", "Craft", "Timber", "Build", "Oak", "Join", "Saw"],
-    "الخليج": ["Dubai", "DXB", "Riyadh", "Najd", "Gulf", "Khaleeji", "Emirates", "Saudi", "Capital", "Elite"]
+    "استهداف الخليج": ["Dubai", "DXB", "AD", "Riyadh", "KSA", "UAE", "Gulf", "Najd", "Emirates", "Elite", "Capital", "Sky", "Desert", "Pearl"]
 }
 
 EXTENSIONS = [".com", ".net", ".ai", ".io", ".live", ".store", ".tech", ".app", ".ae", ".sa"]
 
-# دالة فحص حقيقية للدومين
+# دالة فحص حقيقية للدومين بدقة DNS
 def is_domain_available(domain):
     try:
         socket.gethostbyname(domain)
-        return False
+        return False  # محجوز (Taken)
     except socket.gaierror:
-        return True
+        return True  # متاح (Available)
 
 # دالة توليد الأسماء
 def generate_brand(category):
-    prefixes = ["Alpha", "Global", "Ultra", "Prime", "Next", "Pro", "Smart", "Ever", "Zen", "Gold", "Royal"]
+    prefixes = ["Alpha", "Global", "Ultra", "Prime", "Next", "Pro", "Smart", "Ever", "Zen", "Royal", "First"]
     base = random.choice(BRAND_DATA.get(category, ["Brand"]))
     suffix = random.choice(BRAND_DATA.get(category, ["Corp"]))
     
-    name = random.choice([
-        f"{random.choice(prefixes)}{base}",
-        f"{base}{suffix}",
-        f"{base}{random.randint(10, 99)}"
-    ]).lower()
-    
-    # إذا كان القسم هو الخليج، نزيد احتمالية النطاقات المحلية .ae و .sa
-    if category == "الخليج":
+    # منطق خاص لزر الخليج لضمان دقة الاستهداف
+    if category == "استهداف الخليج":
+        name = random.choice([
+            f"{base}{random.choice(['Group', 'Services', 'Global', 'Way'])}",
+            f"{random.choice(['The', 'My', 'Go'])}{base}",
+            f"{base}{random.randint(1, 99)}"
+        ]).lower()
         ext = random.choice([".ae", ".sa", ".com", ".net"])
     else:
+        name = random.choice([
+            f"{random.choice(prefixes)}{base}",
+            f"{base}{suffix}",
+            f"{base}{random.randint(10, 99)}"
+        ]).lower()
         ext = random.choice(EXTENSIONS)
+        
     return name + ext
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,11 +70,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
         ["🏢 مصانع", "🍴 مطاعم", "👕 ملابس"],
         ["📦 تعبئة", "🚚 شحن", "🛵 توصيل"],
-        ["🏥 مستشفيات", "🤖 AI", "🔨 نجارة"],
-        ["🇸🇦 الخليج 🇦🇪"], # الزر الجديد المستهدف للإمارات والسعودية
+        ["🏥 مستشفيات", "🤖 AI", "🇦🇪 استهداف الخليج 🇸🇦"],
         ["➕ إضافة مستخدم", "➖ حذف مستخدم"]
     ]
-    await update.message.reply_text("🚀 **مرحباً بك في محرك توليد البراندات الذكي**\nاختر القسم لتوليد وفحص 10 دومينات فوراً.", 
+    await update.message.reply_text("🚀 **مرحباً بك في محرك توليد البراندات الذكي**\nتم تحديث قسم استهداف الخليج بنجاح.", 
                                    reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,15 +105,15 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # معالجة توليد الدومينات
-    # استخراج اسم القسم (الخليج أو غيره)
-    category = "الخليج" if "الخليج" in text else text.split(" ")[-1]
+    # استخراج اسم الفئة بدقة حتى مع وجود الإيموجي
+    category = "استهداف الخليج" if "استهداف الخليج" in text else text.split(" ")[-1]
     
     if category in BRAND_DATA:
         m = await update.message.reply_text(f"🧪 جاري توليد وفحص 10 دومينات لـ {category}...")
         
         results = []
         attempts = 0
-        while len(results) < 10 and attempts < 100:
+        while len(results) < 10 and attempts < 150:
             domain = generate_brand(category)
             if domain not in [r[0] for r in results]:
                 status = "✅ متاح" if is_domain_available(domain) else "❌ محجوز"
@@ -127,5 +130,5 @@ if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
-    print("AI Brand Generator with Gulf Target Started...")
+    print("AI Brand Generator (Gulf Focus) Started...")
     app.run_polling()
