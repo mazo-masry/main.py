@@ -5,85 +5,89 @@ import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات
+# إعداد السجلات لمتابعة البوت على Railway
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- الإعدادات ---
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 
-# جلسة العمل المستمرة
-session = requests.Session()
-session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-})
+# مخزن الجلسة (سيتم تحديثه عبر البوت)
+SESSION_DATA = {"cookie": ""}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID:
-        kb = [['🔑 تسجيل دخول (خطوتين)']]
-        await update.message.reply_text("🛠 **لوحة تحكم الأدمن**\nابدأ عملية الدخول بنظام كود الإيميل.", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+        kb = [['⚙️ تحديث الكوكي (الربط)'], ['🆕 فحص أحدث 10 دومينات']]
+        msg = "🛠 **لوحة تحكم الأدمن**\nقم بإرسال الكوكي المستخرج من المتصفح لتفعيل البوت."
     else:
-        await update.message.reply_text("🌟 بوت صيد الدومينات جاهز.")
+        kb = [['🆕 Expired .com']]
+        msg = "🌟 **قناص الدومينات**\nاستخدم القائمة بالأسفل لجلب النتائج."
+    
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
-async def handle_login_2fa(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
-    state = context.user_data.get('state')
 
     if user_id != ADMIN_ID: return
 
-    # 1. طلب اليوزر والباسورد
-    if text == '🔑 تسجيل دخول (خطوتين)':
-        await update.message.reply_text("👤 أرسل اليوزر والباسورد (بينهما مسافة):")
-        context.user_data['state'] = 'WAIT_CREDS'
+    if text == '⚙️ تحديث الكوكي (الربط)':
+        await update.message.reply_text("📥 أرسل نص الكوكي الطويل الذي نسخته من المتصفح الآن:")
+        context.user_data['state'] = 'WAIT_COOKIE'
         return
 
-    # 2. إرسال البيانات وانتظار الموقع ليرسل الإيميل
-    if state == 'WAIT_CREDS':
-        creds = text.split(" ")
-        if len(creds) < 2:
-            await update.message.reply_text("⚠️ أرسل اليوزر والباسورد وبينهما مسافة واحدة.")
+    if context.user_data.get('state') == 'WAIT_COOKIE':
+        # تنظيف النص من كلمة 'cookie:' إذا نُسخت بالخطأ
+        clean_cookie = text.replace("cookie: ", "").strip()
+        SESSION_DATA["cookie"] = clean_cookie
+        context.user_data['state'] = None
+        await update.message.reply_text("✅ **تم الربط بنجاح!**\nالبوت الآن مسجل دخول باسم حسابك ويمكنه جلب البيانات.")
+        return
+
+async def fetch_domains(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not SESSION_DATA["cookie"]:
+        await update.message.reply_text("⚠️ يجب على الأدمن تحديث الكوكي أولاً.")
+        return
+
+    msg = await update.message.reply_text("⏳ جاري سحب البيانات من حسابك الشخصي...")
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Cookie': SESSION_DATA["cookie"],
+            'Referer': 'https://www.expireddomains.net/'
+        }
+        # جلب دومينات .com المنتهية
+        url = "https://www.expireddomains.net/domains/expiredcom/"
+        resp = requests.get(url, headers=headers, timeout=15)
+        
+        if "Login" in resp.text:
+            await msg.edit_text("❌ فشل الاتصال: الكوكي غير صحيح أو انتهت صلاحيته. يرجى تحديثه.")
             return
-        
-        context.user_data['u'], context.user_data['p'] = creds[0], creds[1]
-        msg = await update.message.reply_text("⏳ جاري إرسال البيانات... انتظر وصول الكود لإيميلك.")
-        
-        try:
-            login_data = {'login': creds[0], 'password': creds[1], 'autologin': '1'}
-            response = session.post("https://www.expireddomains.net/login/", data=login_data, timeout=20)
-            
-            # فحص إذا كان الموقع يطلب كود التحقق
-            if "verification" in response.text.lower() or "code" in response.text.lower():
-                await msg.edit_text("📧 الموقع أرسل كوداً إلى بريدك الإلكتروني.\nأرسل الكود هنا الآن:")
-                context.user_data['state'] = 'WAIT_EMAIL_CODE'
-            elif "Logout" in response.text:
-                await msg.edit_text("✅ تم الدخول مباشرة بدون كود!")
-            else:
-                await msg.edit_text("❌ فشل الدخول. تأكد من صحة البيانات أو أن الموقع لم يرسل الكود.")
-        except Exception as e:
-            await msg.edit_text(f"❌ خطأ: {str(e)}")
-        return
 
-    # 3. إرسال كود الإيميل وإتمام العملية
-    if state == 'WAIT_EMAIL_CODE':
-        msg = await update.message.reply_text("⏳ جاري تأكيد الكود...")
-        try:
-            # هنا نرسل الكود الذي أرسله المستخدم
-            verify_data = {'code': text} # اسم الحقل 'code' قد يختلف حسب الموقع
-            response = session.post("https://www.expireddomains.net/login/verify/", data=verify_data) # رابط افتراضي للتحقق
-            
-            if "Logout" in response.text or response.status_code == 200:
-                await msg.edit_text("✅ **مبروك! تم تسجيل الدخول وتفعيل الحساب.**")
-                context.user_data['state'] = 'LOGGED_IN'
-            else:
-                await msg.edit_text("❌ الكود غير صحيح أو انتهت صلاحيته.")
-        except Exception as e:
-            await msg.edit_text(f"❌ خطأ أثناء التأكيد: {str(e)}")
-        return
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        table = soup.find('table', {'class': 'listing'})
+        if not table:
+            await msg.edit_text("⚠️ لا توجد نتائج حالياً.")
+            return
+
+        rows = table.find_all('tr')[1:11]
+        report = "🎯 **أحدث 10 دومينات .com متاحة:**\n\n"
+        for row in rows:
+            cols = row.find_all('td')
+            if len(cols) > 5:
+                domain = cols[0].get_text(strip=True)
+                bl = cols[1].get_text(strip=True)
+                dp = cols[2].get_text(strip=True)
+                report += f"🌐 `{domain}`\n🔗 BL: {bl} | 🏗️ DP: {dp}\n\n"
+        
+        await msg.edit_text(report, parse_mode='Markdown')
+    except Exception as e:
+        await msg.edit_text(f"❌ خطأ فني: {str(e)}")
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_login_2fa))
-    app.run_polling()
+    app.add_handler(MessageHandler(filters.Chat(ADMIN_ID) & filters.Regex('⚙️|تحديث'), handle_admin))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fetch_domains))
+    app.run_polling(drop_pending_updates=True)
