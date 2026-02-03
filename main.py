@@ -10,30 +10,38 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
 
 # --- الإعدادات ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 665829780 
+ADMIN_ID = 665829780  # معرف الأدمن الخاص بك
 
-# مخزن الجلسة (سيتم حفظ الكوكي هنا برمجياً)
-SESSION_DATA = {"cookie": ""}
-# قائمة المستخدمين المسموح لهم
+# الكوكي الثابت الخاص بك (تم تنظيفه ودمجه)
+FIXED_COOKIE = (
+    "PHPSESSID=gnLJ2C YEKFs-aYk; "
+    "WicaUhzLByzwOIq7rZNyoVSTP=2L2pjQwd05vkk5BnWIH02hfVb; "
+    "4w9NAlmhgvr7EMykMSe-5gG1uT2MxLYxT9VcSkEbWCDC=M0q3ArfR8LDRpkASQD"
+)
+
+# قائمة المستخدمين المسموح لهم (تبدأ بالأدمن)
 ALLOWED_USERS = {ADMIN_ID}
 
-def fetch_data(endpoint, cookie):
+# دالة سحب كافة الدومينات المعروضة في الصفحة
+def fetch_all_listed_domains(endpoint):
     url = f"https://www.expireddomains.net/domains/{endpoint}/"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Cookie': cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Cookie': FIXED_COOKIE,
         'Referer': 'https://www.expireddomains.net/'
     }
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=20)
         if "Login" in response.text:
             return "EXPIRED"
             
         soup = BeautifulSoup(response.text, 'html.parser')
         table = soup.find('table', {'class': 'listing'})
-        if not table: return "EMPTY"
+        if not table:
+            return "EMPTY"
 
-        rows = table.find_all('tr')[1:11]
+        # سحب كل الصفوف المتاحة (بدون تحديد عدد معين)
+        rows = table.find_all('tr')[1:] 
         results = []
         for row in rows:
             cols = row.find_all('td')
@@ -41,26 +49,26 @@ def fetch_data(endpoint, cookie):
                 results.append({
                     "domain": cols[0].get_text(strip=True),
                     "bl": cols[1].get_text(strip=True),
-                    "dp": cols[2].get_text(strip=True),
                     "status": cols[3].get_text(strip=True)
                 })
         return results
-    except: return "ERROR"
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        return "ERROR"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID:
         kb = [
-            ['🆕 جلب .com', '🌐 جلب .net'],
-            ['⏳ قريباً (Pending)', '⚙️ تحديث الجلسة (الكوكي)'],
-            ['➕ إضافة مستخدم', '📊 قائمة المستخدمين']
+            ['🔍 استخراج كافة الدومينات (.com)', '🌐 استخراج (.net)'],
+            ['⏳ قريباً (Pending)', '👥 إدارة المستخدمين']
         ]
-        msg = "👑 **لوحة تحكم الأدمن**\nجاهز لجلب البيانات. إذا توقف البوت، قم بتحديث الكوكي."
+        msg = "👑 **لوحة تحكم الأدمن**\nالكوكي مدمج والسكربت جاهز للاستخراج الشامل."
     elif user_id in ALLOWED_USERS:
-        kb = [['🆕 جلب .com', '🌐 جلب .net'], ['⏳ قريباً (Pending)']]
-        msg = "🌟 **مرحباً بك**\nيمكنك البحث عن الدومينات الآن."
+        kb = [['🔍 استخراج كافة الدومينات (.com)', '🌐 استخراج (.net)']]
+        msg = "🌟 **مرحباً بك**\nيمكنك الآن سحب كافة الدومينات المتاحة."
     else:
-        await update.message.reply_text("🚫 غير مصرح لك. تواصل مع الأدمن.")
+        await update.message.reply_text("🚫 الدخول ممنوع. تواصل مع الأدمن للوصول.")
         return
     await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
@@ -69,56 +77,72 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     state = context.user_data.get('state')
 
-    # --- إدارة الكوكي والمستخدمين (للأدمن) ---
+    # --- إدارة المستخدمين (للأدمن فقط) ---
     if user_id == ADMIN_ID:
-        if text == '⚙️ تحديث الجلسة (الكوكي)':
-            await update.message.reply_text("📥 أرسل الكوكي الجديد من المتصفح الآن:")
-            context.user_data['state'] = 'WAIT_COOKIE'
+        if text == '👥 إدارة المستخدمين':
+            kb = [['➕ إضافة مستخدم', '➖ حذف مستخدم'], ['🔙 رجوع']]
+            await update.message.reply_text("اختر العملية المطلوبة:", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
             return
-        if state == 'WAIT_COOKIE':
-            SESSION_DATA["cookie"] = text.strip()
-            context.user_data['state'] = None
-            await update.message.reply_text("✅ تم تحديث الجلسة بنجاح! جرب السحب الآن.")
-            return
+        
         if text == '➕ إضافة مستخدم':
-            await update.message.reply_text("أرسل ID المستخدم:")
-            context.user_data['state'] = 'ADD_USER'
+            await update.message.reply_text("أرسل ID المستخدم الجديد:")
+            context.user_data['state'] = 'ADD'
             return
-        if state == 'ADD_USER':
+        
+        if state == 'ADD':
             try:
-                ALLOWED_USERS.add(int(text))
-                await update.message.reply_text(f"✅ تم إضافة {text}")
-            except: await update.message.reply_text("❌ ID خطأ")
+                new_id = int(text)
+                ALLOWED_USERS.add(new_id)
+                await update.message.reply_text(f"✅ تم تفعيل المستخدم {new_id}")
+            except: await update.message.reply_text("❌ خطأ! أرسل أرقام الـ ID فقط.")
             context.user_data['state'] = None
             return
 
-    # --- جلب الدومينات ---
+        if text == '➖ حذف مستخدم':
+            await update.message.reply_text("أرسل ID المستخدم المراد حذفه:")
+            context.user_data['state'] = 'DEL'
+            return
+        
+        if state == 'DEL':
+            try:
+                del_id = int(text)
+                ALLOWED_USERS.discard(del_id)
+                await update.message.reply_text(f"🗑 تم حذف المستخدم {del_id}")
+            except: await update.message.reply_text("❌ خطأ في الـ ID.")
+            context.user_data['state'] = None
+            return
+
+    # --- استخراج الدومينات ---
     if user_id in ALLOWED_USERS:
         endpoint = ""
-        if text == '🆕 جلب .com': endpoint = "expiredcom"
-        elif text == '🌐 جلب .net': endpoint = "expirednet"
-        elif text == '⏳ قريباً (Pending)': endpoint = "pendingdelete"
+        if '(.com)' in text: endpoint = "expiredcom"
+        elif '(.net)' in text: endpoint = "expirednet"
+        elif 'Pending' in text: endpoint = "pendingdelete"
 
         if endpoint:
-            if not SESSION_DATA["cookie"]:
-                await update.message.reply_text("⚠️ الأدمن لم يقم بضبط الكوكي بعد.")
-                return
-            
-            m = await update.message.reply_text("⏳ جاري سحب البيانات...")
-            data = fetch_data(endpoint, SESSION_DATA["cookie"])
+            status_msg = await update.message.reply_text("🔄 جاري سحب كافة الدومينات المتاحة الآن...")
+            data = fetch_all_listed_domains(endpoint)
 
             if data == "EXPIRED":
-                await m.edit_text("❌ انتهت صلاحية الكوكي. يرجى من الأدمن تحديثه.")
+                await status_msg.edit_text("❌ فشل! الكوكي الثابت لم يعد يعمل أو تم حظره. يرجى استخراج واحد جديد.")
             elif data == "EMPTY" or data == "ERROR":
-                await m.edit_text("⚠️ فشل جلب البيانات. تأكد من الكوكي أو الموقع.")
+                await status_msg.edit_text("⚠️ الموقع لم يرجع بيانات. قد يكون هناك حظر مؤقت لـ IP السيرفر.")
             else:
-                res = f"🎯 **أحدث 10 نتائج ({text}):**\n\n"
-                for item in data:
-                    res += f"🌐 `{item['domain']}`\n🔗 BL: `{item['bl']}` | 📅 `{item['status']}`\n\n"
-                await m.edit_text(res, parse_mode='Markdown')
+                # تقسيم النتائج لرسائل إذا كانت كثيرة
+                report = f"✅ **تم العثور على {len(data)} دومين:**\n\n"
+                for i, item in enumerate(data, 1):
+                    line = f"{i}- `{item['domain']}` (BL: {item['bl']})\n"
+                    if len(report) + len(line) > 4000: # تجنب تجاوز حد رسالة تليجرام
+                        await update.message.reply_text(report, parse_mode='Markdown')
+                        report = ""
+                    report += line
+                
+                await update.message.reply_text(report, parse_mode='Markdown')
+                await status_msg.delete()
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+    print("البوت يعمل الآن بنظام الاستخراج الشامل...")
     app.run_polling()
