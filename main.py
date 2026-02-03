@@ -1,97 +1,124 @@
 import os
-import asyncio
-import httpx
-from bs4 import BeautifulSoup
+import random
+import socket
+import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import time
 
-# إعدادات البوت
+# إعداد السجلات
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+
 TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = 665829780 
 
-# محرك البحث الذكي - يستخدم نظام Session للحفاظ على السرعة
-class DomainSniper:
-    def __init__(self):
-        self.base_url = "https://www.domcop.com/domains/expired-domains/"
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control': 'no-cache'
-        }
+# قاعدة بيانات المستخدمين
+ALLOWED_USERS = {ADMIN_ID}
 
-    async def get_fresh_domains(self):
-        async with httpx.AsyncClient(headers=self.headers, timeout=30.0) as client:
-            try:
-                # إضافة متغير زمني فريد لمنع تكرار البيانات
-                params = {'_': int(time.time() * 1000)}
-                response = await client.get(self.base_url, params=params)
-                
-                if response.status_code != 200:
-                    return "ERROR_LIMIT"
+# قاموس الكلمات لتوليد البراندات
+BRAND_DATA = {
+    "مصانع": ["Mfg", "Fab", "Ind", "Works", "Tech", "Line", "Forge", "Mill"],
+    "مطاعم": ["Tasty", "Bite", "Chef", "Dish", "Eats", "Grill", "Foody", "Kitchen"],
+    "ملابس": ["Wear", "Style", "Fit", "Vogue", "Thread", "Apparel", "Fabric"],
+    "تعبئة": ["Pack", "Wrap", "Box", "Fill", "Seal", "Flow", "Case"],
+    "شحن": ["Ship", "Logix", "Cargo", "Move", "Fast", "Route", "Post"],
+    "توصيل": ["Dash", "Drop", "Swift", "Zoom", "Go", "Fetch", "Way"],
+    "مستشفيات": ["Med", "Care", "Health", "Cure", "Clinic", "Life", "Heal"],
+    "AI": ["AI", "Bot", "Neural", "Mind", "Logic", "Data", "Smart", "IQ"],
+    "نجارة": ["Wood", "Craft", "Timber", "Build", "Oak", "Join", "Saw"]
+}
 
-                soup = BeautifulSoup(response.text, 'html.parser')
-                # البحث عن الجدول الذكي
-                table = soup.find('table')
-                if not table: return "NO_TABLE"
+EXTENSIONS = [".com", ".net", ".ai", ".io", ".live", ".store", ".tech", ".app"]
 
-                rows = table.find_all('tr')[1:16]
-                extracted = []
-                
-                for row in rows:
-                    cols = row.find_all('td')
-                    if len(cols) >= 5:
-                        data = {
-                            'name': cols[0].get_text(strip=True),
-                            'tf': cols[1].get_text(strip=True) or "0",
-                            'bl': cols[2].get_text(strip=True) or "0",
-                            'da': cols[3].get_text(strip=True) or "0",
-                            'time': cols[-1].get_text(strip=True) or "N/A"
-                        }
-                        # ذكاء اصطناعي بسيط: استبعاد الدومينات التي ليس لها أي روابط خلفية
-                        if data['bl'] != "0":
-                            extracted.append(data)
-                
-                return extracted
-            except Exception as e:
-                return str(e)
+# دالة فحص حقيقية للدومين
+def is_domain_available(domain):
+    try:
+        # محاولة حل اسم الدومين عبر DNS
+        socket.gethostbyname(domain)
+        return False  # محجوز (Taken)
+    except socket.gaierror:
+        return True  # متاح (Available)
 
-sniper = DomainSniper()
-
-# --- أوامر البوت ---
+# دالة توليد الأسماء
+def generate_brand(category):
+    prefixes = ["Alpha", "Global", "Ultra", "Prime", "Next", "Pro", "Smart", "Ever", "Zen"]
+    base = random.choice(BRAND_DATA.get(category, ["Brand"]))
+    suffix = random.choice(BRAND_DATA.get(category, ["Corp"]))
+    
+    name = random.choice([
+        f"{random.choice(prefixes)}{base}",
+        f"{base}{suffix}",
+        f"{base}{random.randint(10, 99)}"
+    ]).lower()
+    
+    ext = random.choice(EXTENSIONS)
+    return name + ext
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [['🎯 صيد الدومينات الحية (DomCop)', '⚙️ إعدادات الفلترة']]
-    await update.message.reply_text(
-        "🛠 **مرحباً بك في السكربت الذكي v3.0**\nتم ضبط المحرك على وضع الاستخراج الاحترافي.",
-        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
-    )
+    user_id = update.effective_user.id
+    if user_id not in ALLOWED_USERS:
+        await update.message.reply_text("🚫 الدخول ممنوع. تواصل مع الأدمن.")
+        return
 
-async def handle_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == '🎯 صيد الدومينات الحية (DomCop)':
-        status_msg = await update.message.reply_text("🔎 جاري الفحص اللحظي وتجاوز الكاش...")
+    kb = [
+        ["🏢 مصانع", "🍴 مطاعم", "👕 ملابس"],
+        ["📦 تعبئة", "🚚 شحن", "🛵 توصيل"],
+        ["🏥 مستشفيات", "🤖 AI", "🔨 نجارة"],
+        ["➕ إضافة مستخدم", "➖ حذف مستخدم"]
+    ]
+    await update.message.reply_text("🚀 **مرحباً بك في محرك توليد البراندات الذكي**\nاختر القسم لتوليد وفحص 10 دومينات فوراً.", 
+                                   reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+
+async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    if user_id not in ALLOWED_USERS: return
+
+    # إدارة المستخدمين للأدمن
+    if user_id == ADMIN_ID:
+        if text == "➕ إضافة مستخدم":
+            await update.message.reply_text("أرسل ID المستخدم:")
+            context.user_data['state'] = 'ADD'
+            return
+        if text == "➖ حذف مستخدم":
+            await update.message.reply_text("أرسل ID المستخدم للحذف:")
+            context.user_data['state'] = 'DEL'
+            return
         
-        data = await sniper.get_fresh_domains()
+        state = context.user_data.get('state')
+        if state in ['ADD', 'DEL']:
+            try:
+                target = int(text)
+                if state == 'ADD': ALLOWED_USERS.add(target)
+                else: ALLOWED_USERS.discard(target)
+                await update.message.reply_text(f"✅ تمت العملية لـ {target}")
+            except: await update.message.reply_text("❌ خطأ في الـ ID")
+            context.user_data['state'] = None
+            return
+
+    # معالجة توليد الدومينات
+    category = text.split(" ")[-1] # استخراج اسم القسم من الزر
+    if category in BRAND_DATA:
+        m = await update.message.reply_text(f"🧪 جاري توليد وفحص 10 دومينات في قسم {category}...")
         
-        if data == "ERROR_LIMIT":
-            await status_msg.edit_text("⚠️ الموقع فرض حماية مؤقتة. سأحاول تغيير الهوية الرقمية، انتظر دقيقة.")
-        elif data == "NO_TABLE":
-            await status_msg.edit_text("📭 لا توجد بيانات جديدة حالياً، جرب الضغط مرة أخرى.")
-        elif isinstance(data, list):
-            report = f"✅ **تم العثور على {len(data)} دومين بجودة عالية:**\n\n"
-            for item in data:
-                report += (
-                    f"🌐 `{item['name']}`\n"
-                    f"📊 **TF:** {item['tf']} | **DA:** {item['da']} | 🔗 **BL:** {item['bl']}\n"
-                    f"⏳ **باقي:** {item['time']}\n"
-                    f"────────────────────\n"
-                )
-            await status_msg.edit_text(report, parse_mode='Markdown')
-        else:
-            await status_msg.edit_text(f"❌ خطأ غير متوقع: {data}")
+        results = []
+        attempts = 0
+        while len(results) < 10 and attempts < 50:
+            domain = generate_brand(category)
+            status = "✅ متاح" if is_domain_available(domain) else "❌ محجوز"
+            if domain not in [r[0] for r in results]:
+                results.append((domain, status))
+            attempts += 1
+
+        report = f"🎯 **نتائج توليد براندات ({category}):**\n\n"
+        for d, s in results:
+            report += f"🌐 `{d}` \n  Status: {s}\n\n"
+        
+        await m.edit_text(report, parse_mode='Markdown')
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_request))
-    print("Sniper Bot is Active...")
-    app.run_polling(drop_pending_updates=True)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+    print("AI Brand Generator Started...")
+    app.run_polling()
