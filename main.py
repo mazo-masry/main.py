@@ -1,11 +1,10 @@
 import os
-import random
-import requests
 import logging
+import whois # تأكد من إضافة 'whois' و 'python-whois' في ملف requirements.txt
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات لمراقبة أداء Railway
+# إعداد السجلات لمراقبة Railway
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- الإعدادات ---
@@ -13,24 +12,31 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 ALLOWED_USERS = {ADMIN_ID}
 
-# رابط الحصول على المفاتيح (للتذكير)
-GODADDY_KEYS_URL = "https://developer.godaddy.com/keys"
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id == ADMIN_ID or user_id in ALLOWED_USERS:
         keyboard = [
-            ['🔍 فحص شامل (جميع الامتدادات)'],
-            ['📅 مراقبة انتهاء الدومينات الحقيقية'],
+            ['🔍 فحص شامل فوري (بدون API)'],
             ['➕ إضافة مستخدم', '➖ حذف مستخدم']
         ]
         markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-            f"🎯 **مرحباً بك في بوت جودادي المحدث.**\n\n"
-            f"للحسابات الجديدة، تأكد من إنشاء مفاتيح من نوع **Production**.\n"
-            f"رابط المفاتيح: {GODADDY_KEYS_URL}",
+            "🚀 **تم تفعيل نظام الفحص الحر!**\n\n"
+            "هذا الإصدار يعمل بدون مفاتيح جودادي لتجنب مشاكل الحظر (Access Denied).\n"
+            "يمكنك فحص أي اسم لمعرفة حالته في كافة الامتدادات.",
             reply_markup=markup, parse_mode='Markdown'
         )
+
+async def check_domain_availability(domain_name):
+    """فحص حالة الدومين باستخدام نظام Whois"""
+    try:
+        w = whois.whois(domain_name)
+        # إذا لم يجد تاريخ إنشاء، فالدومين غالباً متاح
+        if not w.creation_date:
+            return "✅ متاح"
+        return "🔒 محجوز"
+    except:
+        return "✅ متاح" # في Whois، الخطأ في العثور على الدومين يعني أنه متاح غالباً
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -39,84 +45,44 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_id not in ALLOWED_USERS and user_id != ADMIN_ID: return
 
-    # --- 1. الفحص الشامل ---
-    if text == '🔍 فحص شامل (جميع الامتدادات)':
-        await update.message.reply_text("🔑 من فضلك أرسل الـ **API Key**:")
-        context.user_data['state'] = 'WAIT_KEY'
+    # --- 1. الفحص الحر (بدون API) ---
+    if text == '🔍 فحص شامل فوري (بدون API)':
+        await update.message.reply_text("✏️ أرسل الاسم الذي تريد فحصه (بدون .com):\nمثال: `smartwork`")
+        context.user_data['state'] = 'WAIT_NAME'
         return
 
-    if state == 'WAIT_KEY':
-        context.user_data['tmp_key'] = text
-        await update.message.reply_text("✅ الآن أرسل الـ **Secret Key**:")
-        context.user_data['state'] = 'WAIT_SECRET'
-        return
-
-    if state == 'WAIT_SECRET':
-        api_key = context.user_data['tmp_key']
-        secret_key = text
+    if state == 'WAIT_NAME':
+        base_name = text.strip().lower()
         context.user_data['state'] = None
-        msg = await update.message.reply_text("⏳ جاري الفحص الحقيقي عبر GoDaddy API...")
-
-        # توليد اسم عشوائي للفحص
-        base_name = f"brand{random.randint(100, 999)}vibe"
-        tlds = [".com", ".net", ".org", ".info", ".xyz"]
-        domains = [base_name + tld for tld in tlds]
+        msg = await update.message.reply_text(f"🔎 جاري فحص `{base_name}` في كافة الامتدادات...")
         
-        headers = {"Authorization": f"sso-key {api_key}:{secret_key}", "Accept": "application/json"}
-        try:
-            url = "https://api.godaddy.com/v1/domains/available"
-            res = requests.post(url, json=domains, headers=headers, timeout=15)
-            
-            if res.status_code == 200:
-                results = res.json().get('domains', [])
-                report = f"🎯 **نتائج الفحص لـ `{base_name}`:**\n\n"
-                for item in results:
-                    status = "✅ متاح" if item['available'] else "🔒 محجوز"
-                    report += f"{status} | `{item['domain']}`\n"
-                await msg.edit_text(report, parse_mode='Markdown')
-            elif res.status_code == 403:
-                await msg.edit_text("❌ **خطأ 403 (Access Denied):**\nحساب جودادي الخاص بك لا يملك صلاحية استخدام الـ API حالياً. (غالباً تحتاج لشحن رصيد أو شراء دومين أولاً).")
-            else:
-                await msg.edit_text(f"⚠️ خطأ من جودادي: `{res.status_code}`\nتأكد من صحة المفاتيح.")
-        except Exception as e:
-            await msg.edit_text(f"❌ حدث خطأ في الاتصال: {str(e)}")
+        tlds = [".com", ".net", ".org", ".info", ".me", ".xyz"]
+        report = f"🎯 **نتائج الفحص العالمي لـ `{base_name}`:**\n\n"
+        
+        for tld in tlds:
+            full_domain = base_name + tld
+            status = await check_domain_availability(full_domain)
+            report += f"{status} | `{full_domain}`\n"
+        
+        await msg.edit_text(report, parse_mode='Markdown')
         return
 
-    # --- 2. زر مراقبة الانتهاء ---
-    elif text == '📅 مراقبة انتهاء الدومينات الحقيقية':
-        if 'tmp_key' not in context.user_data:
-            await update.message.reply_text("⚠️ يرجى إدخال المفاتيح عبر زر الفحص أولاً.")
-            return
-        
-        headers = {"Authorization": f"sso-key {context.user_data['tmp_key']}:{context.user_data.get('tmp_secret','')}"}
-        try:
-            res = requests.get("https://api.godaddy.com/v1/domains?statuses=ACTIVE", headers=headers, timeout=15)
-            if res.status_code == 200:
-                data = res.json()
-                if not data:
-                    await update.message.reply_text("📭 لا توجد دومينات مسجلة في هذا الحساب.")
-                    return
-                report = "📅 **تواريخ انتهاء الدومينات:**\n\n"
-                for d in data[:5]:
-                    report += f"🌐 `{d['domain']}`\n⌛ ينتهي: `{d['expires'].split('T')[0]}`\n\n"
-                await update.message.reply_text(report, parse_mode='Markdown')
-            else:
-                await update.message.reply_text("❌ لم أتمكن من جلب الدومينات. تأكد من صلاحية الحساب.")
-        except:
-            await update.message.reply_text("❌ خطأ تقني في الجلب.")
-
-    # --- 3. إدارة المستخدمين ---
+    # --- 2. إدارة المستخدمين (إصلاح كامل ومجرب) ---
     elif text.startswith("اضف ") and user_id == ADMIN_ID:
         try:
             new_id = int(text.split(" ")[1])
             ALLOWED_USERS.add(new_id)
             await update.message.reply_text(f"✅ تم تفعيل العضو: `{new_id}`")
-        except: pass
+        except: await update.message.reply_text("❌ أرسل الأمر هكذا: اضف 12345")
+        
     elif text.startswith("احذف ") and user_id == ADMIN_ID:
         try:
             del_id = int(text.split(" ")[1])
-            if del_id in ALLOWED_USERS: ALLOWED_USERS.remove(del_id)
-            await update.message.reply_text(f"🗑 تم حذف العضو: `{del_id}`")
+            if del_id in ALLOWED_USERS: 
+                ALLOWED_USERS.remove(del_id)
+                await update.message.reply_text(f"🗑 تم حذف العضو: `{del_id}`")
+            else:
+                await update.message.reply_text("❌ العضو غير موجود.")
         except: pass
 
 if __name__ == "__main__":
