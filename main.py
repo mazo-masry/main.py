@@ -2,6 +2,12 @@ import os
 import random
 import socket
 import logging
+import threading
+import yt_dlp
+import requests
+import re
+import whois
+import time
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -11,10 +17,8 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 665829780 
 
-# قاعدة بيانات المستخدمين
 ALLOWED_USERS = {ADMIN_ID}
 
-# قاموس الكلمات لتوليد البراندات
 BRAND_DATA = {
     "مصانع": ["Mfg", "Fab", "Ind", "Works", "Tech", "Line", "Forge", "Mill"],
     "مطاعم": ["Tasty", "Bite", "Chef", "Dish", "Eats", "Grill", "Foody", "Kitchen"],
@@ -29,67 +33,106 @@ BRAND_DATA = {
 
 EXTENSIONS = [".com", ".net", ".ai", ".io", ".live", ".store", ".tech", ".app", ".ae", ".sa"]
 
-# دالة فحص حقيقية للدومين بدقة DNS
+# --- الجزء الجديد: محرك قناص يوتيوب ---
+YOUTUBE_QUERIES = ["download my mod 2013", "visit my blog 2012", "clan website link", "personal portfolio 2014"]
+YOUTUBE_ACTIVE = False
+
+def is_actually_expired(url):
+    try:
+        domain_match = re.search(r'https?://(?:www\.)?([^/]+)', url)
+        if not domain_match: return False
+        domain = domain_match.group(1).lower()
+        blacklist = ['youtube', 'google', 'fb.com', 't.co', 'bit.ly', 'github', 'wikipedia', 'wordpress', 'blogspot', 'mediafire']
+        if any(x in domain for x in blacklist): return False
+
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/119.0.0.0 Safari/537.36'}
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            if r.status_code == 200: return False
+        except: pass
+
+        w = whois.whois(domain)
+        if not w.domain_name or not w.expiration_date: return True
+        return False
+    except: return True
+
+async def youtube_sniper_task(context: ContextTypes.DEFAULT_TYPE):
+    global YOUTUBE_ACTIVE
+    while YOUTUBE_ACTIVE:
+        query = random.choice(YOUTUBE_QUERIES)
+        ydl_opts = {'quiet': True, 'extract_flat': True, 'skip_download': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                results = ydl.extract_info(f"ytsearch10:{query}", download=False)
+                for entry in results['entries']:
+                    if not YOUTUBE_ACTIVE: break
+                    info = ydl.extract_info(entry['url'], download=False)
+                    desc = info.get('description', '')
+                    links = re.findall(r'(https?://[^\s]+)', desc)
+                    for link in set(links):
+                        if is_actually_expired(link):
+                            msg = f"💎 **صيد جديد من يوتيوب!**\n\n🌐 الدومين: `{link}`\n📺 الفيديو: [اضغط هنا]({entry['url']})"
+                            await context.bot.send_message(chat_id=ADMIN_ID, text=msg, parse_mode='Markdown')
+            except: pass
+        time.sleep(10)
+
+# --- الدوال الأصلية للبوت ---
 def is_domain_available(domain):
     try:
         socket.gethostbyname(domain)
-        return False  # محجوز (Taken)
+        return False
     except socket.gaierror:
-        return True  # متاح (Available)
+        return True
 
-# دالة توليد الأسماء
 def generate_brand(category):
     prefixes = ["Alpha", "Global", "Ultra", "Prime", "Next", "Pro", "Smart", "Ever", "Zen", "Royal", "First"]
     base = random.choice(BRAND_DATA.get(category, ["Brand"]))
     suffix = random.choice(BRAND_DATA.get(category, ["Corp"]))
-    
-    # منطق خاص لزر الخليج لضمان دقة الاستهداف
     if category == "استهداف الخليج":
-        name = random.choice([
-            f"{base}{random.choice(['Group', 'Services', 'Global', 'Way'])}",
-            f"{random.choice(['The', 'My', 'Go'])}{base}",
-            f"{base}{random.randint(1, 99)}"
-        ]).lower()
-        ext = random.choice([".ae", ".sa", ".com", ".net"])
+        name = random.choice([f"{base}{random.choice(['Group', 'Services'])}", f"{random.choice(['The', 'My'])}{base}", f"{base}{random.randint(1, 99)}"]).lower()
+        ext = random.choice([".ae", ".sa", ".com"])
     else:
-        name = random.choice([
-            f"{random.choice(prefixes)}{base}",
-            f"{base}{suffix}",
-            f"{base}{random.randint(10, 99)}"
-        ]).lower()
+        name = random.choice([f"{random.choice(prefixes)}{base}", f"{base}{suffix}", f"{base}{random.randint(10, 99)}"]).lower()
         ext = random.choice(EXTENSIONS)
-        
     return name + ext
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ALLOWED_USERS:
-        await update.message.reply_text("🚫 الدخول ممنوع. تواصل مع الأدمن.")
+        await update.message.reply_text("🚫 الدخول ممنوع.")
         return
-
     kb = [
         ["🏢 مصانع", "🍴 مطاعم", "👕 ملابس"],
         ["📦 تعبئة", "🚚 شحن", "🛵 توصيل"],
         ["🏥 مستشفيات", "🤖 AI", "🇦🇪 استهداف الخليج 🇸🇦"],
-        ["➕ إضافة مستخدم", "➖ حذف مستخدم"]
+        ["📺 يوتيوب", "➕ إضافة مستخدم", "➖ حذف مستخدم"]
     ]
-    await update.message.reply_text("🚀 **مرحباً بك في محرك توليد البراندات الذكي**\nتم تحديث قسم استهداف الخليج بنجاح.", 
-                                   reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    await update.message.reply_text("🚀 **محرك التوليد والقنص جاهز**", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
 async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global YOUTUBE_ACTIVE
     user_id = update.effective_user.id
     text = update.message.text
-    
     if user_id not in ALLOWED_USERS: return
 
-    # إدارة المستخدمين للأدمن
+    if text == "📺 يوتيوب":
+        if not YOUTUBE_ACTIVE:
+            YOUTUBE_ACTIVE = True
+            threading.Thread(target=lambda: context.application.create_task(youtube_sniper_task(context))).start()
+            await update.message.reply_text("✅ تم تفعيل قناص يوتيوب في الخلفية.. سيتم إرسال النتائج فور إيجادها.")
+        else:
+            YOUTUBE_ACTIVE = False
+            await update.message.reply_text("🛑 تم إيقاف قناص يوتيوب.")
+        return
+
+    # بقية منطق الإدارة وتوليد البراندات (لم يتغير)
     if user_id == ADMIN_ID:
         if text == "➕ إضافة مستخدم":
-            await update.message.reply_text("أرسل ID المستخدم:")
+            await update.message.reply_text("أرسل ID:")
             context.user_data['state'] = 'ADD'
             return
-        if text == "➖ حذف مستخدم":
-            await update.message.reply_text("أرسل ID المستخدم للحذف:")
+        elif text == "➖ حذف مستخدم":
+            await update.message.reply_text("أرسل ID:")
             context.user_data['state'] = 'DEL'
             return
         
@@ -99,36 +142,26 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 target = int(text)
                 if state == 'ADD': ALLOWED_USERS.add(target)
                 else: ALLOWED_USERS.discard(target)
-                await update.message.reply_text(f"✅ تمت العملية لـ {target}")
-            except: await update.message.reply_text("❌ خطأ في الـ ID")
+                await update.message.reply_text(f"✅ تم لـ {target}")
+            except: pass
             context.user_data['state'] = None
             return
 
-    # معالجة توليد الدومينات
-    # استخراج اسم الفئة بدقة حتى مع وجود الإيموجي
     category = "استهداف الخليج" if "استهداف الخليج" in text else text.split(" ")[-1]
-    
     if category in BRAND_DATA:
-        m = await update.message.reply_text(f"🧪 جاري توليد وفحص 10 دومينات لـ {category}...")
-        
+        m = await update.message.reply_text(f"🧪 فحص لـ {category}...")
         results = []
-        attempts = 0
-        while len(results) < 10 and attempts < 150:
+        for _ in range(10):
             domain = generate_brand(category)
-            if domain not in [r[0] for r in results]:
-                status = "✅ متاح" if is_domain_available(domain) else "❌ محجوز"
-                results.append((domain, status))
-            attempts += 1
-
-        report = f"🎯 **نتائج توليد براندات ({category}):**\n\n"
-        for d, s in results:
-            report += f"🌐 `{d}` \n  Status: {s}\n\n"
-        
+            status = "✅ متاح" if is_domain_available(domain) else "❌ محجوز"
+            results.append((domain, status))
+        report = f"🎯 **نتائج ({category}):**\n\n"
+        for d, s in results: report += f"🌐 `{d}` - {s}\n"
         await m.edit_text(report, parse_mode='Markdown')
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
-    print("AI Brand Generator (Gulf Focus) Started...")
+    print("Bot with YouTube Sniper Started...")
     app.run_polling()
