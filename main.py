@@ -2,69 +2,104 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import logging
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات
+# إعداد السجلات لمراقبة Railway
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# الإعدادات من متغيرات بيئة Railway
+# --- الإعدادات ---
 TOKEN = os.getenv("BOT_TOKEN")
-EXPIRED_COOKIE = os.getenv("EXPIRED_COOKIE") # تأكد من تحديثه من المتصفح
-ADMIN_ID = 665829780
-allowed_users = {ADMIN_ID}
+ADMIN_ID = 665829780 
+# تخزين الكوكي في الذاكرة (يفضل مستقبلاً وضعه في Database)
+SESSION_DATA = {"cookie": ""}
 
-async def fetch_expired_data():
-    url = "https://www.expireddomains.net/expired-domains/"
-    
-    # هذه الترويسات تجعل الطلب يبدو كأنه من متصفح حقيقي
+# دالة السحب المركزية من حسابك
+def fetch_domains_from_account(endpoint, limit=10):
+    url = f"https://member.expireddomains.net/domains/{endpoint}/"
     headers = {
-        'authority': 'www.expireddomains.net',
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'accept-language': 'en-US,en;q=0.9,ar;q=0.8',
-        'cache-control': 'max-age=0',
-        'cookie': EXPIRED_COOKIE,
-        'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
-        'sec-ch-ua': '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
-        'sec-fetch-site': 'none',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-user': '?1',
-        'sec-fetch-dest': 'document',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Cookie': SESSION_DATA["cookie"],
+        'Referer': 'https://member.expireddomains.net/'
     }
-
     try:
         response = requests.get(url, headers=headers, timeout=15)
-        
-        # إذا أعطى الموقع 403 أو 429 فهذا يعني حظر IP أو Cookie
-        if response.status_code == 403:
-            return "🚫 **خطأ 403:** الموقع اكتشف أنك بوت. يرجى تحديث الـ Cookie من المتصفح الآن."
+        if "Login" in response.text or response.status_code == 403:
+            return "❌ خطأ: جلسة الدخول انتهت. اطلب من الأدمن تحديث الـ Cookie."
             
         soup = BeautifulSoup(response.text, 'html.parser')
         table = soup.find('table', {'class': 'listing'})
-        
-        if not table:
-            # محاولة طباعة جزء من الاستجابة في الـ Logs لمعرفة السبب
-            logging.warning(f"Response snippet: {response.text[:200]}")
-            return "⚠️ لم يظهر الجدول. غالباً تحتاج لتسجيل الدخول في الموقع ونسخ الـ Cookie الجديد."
+        if not table: return "⚠️ لا توجد بيانات حالياً في هذا القسم."
 
-        rows = table.find_all('tr')[1:]
-        report = "💎 **رادار اللقطات القصيرة (محدث):**\n\n"
-        found = False
-        
-        for row in rows[:50]:
+        rows = table.find_all('tr')[1:limit+1]
+        results = []
+        for row in rows:
             cols = row.find_all('td')
-            if len(cols) > 0:
-                domain = cols[0].get_text(strip=True)
-                # فلتر الأسماء الرباعية النقية
-                name_only = domain.split('.')[0]
-                if len(name_only) <= 4 and name_only.isalpha():
-                    bl = cols[1].get_text(strip=True)
-                    report += f"✅ **لقطة:** `{domain}`\n📊 باكلينك: {bl}\n\n"
-                    found = True
-        
-        return report if found else "🔍 لم يتم العثور على لقطات رباعية في هذه الصفحة حالياً."
-
+            if len(cols) > 5:
+                results.append({
+                    "domain": cols[0].get_text(strip=True),
+                    "bl": cols[1].get_text(strip=True), # Backlinks
+                    "status": cols[3].get_text(strip=True) # تاريخ الحذف أو الحالة
+                })
+        return results
     except Exception as e:
-        return f"❌ خطأ فني: {str(e)}"
+        return f"❌ خطأ تقني: {str(e)}"
 
-# ... (باقي أوامر الإدارة كما هي في السكربت السابق) ...
+# --- أوامر الأدمن ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id == ADMIN_ID:
+        kb = [['⚙️ تحديث جلسة الدخول (Cookie)'], ['📊 معاينة نتائج الحساب']]
+        msg = "👑 **لوحة تحكم الأدمن**\nيرجى تحديث الكوكي لضمان عمل البوت للزبائن."
+    else:
+        kb = [['🆕 أحدث 10 دومينات محذوفة (.com)'], ['⏳ دومينات ستنتهي قريباً']]
+        msg = "🌟 **مرحباً بك في بوت قناص الدومينات**\nاختر من القائمة بالأسفل لجلب أحدث النتائج العالمية."
+    
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True), parse_mode='Markdown')
+
+async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+
+    # --- منطق الأدمن لضبط الحساب ---
+    if user_id == ADMIN_ID:
+        if text == '⚙️ تحديث جلسة الدخول (Cookie)':
+            await update.message.reply_text("أرسل الـ Cookie الجديد من المتصفح (Network -> Headers):")
+            context.user_data['state'] = 'WAIT_COOKIE'
+            return
+        
+        if context.user_data.get('state') == 'WAIT_COOKIE':
+            SESSION_DATA["cookie"] = text
+            context.user_data['state'] = None
+            await update.message.reply_text("✅ تم تحديث الجلسة بنجاح! البوت الآن جاهز لخدمة الزبائن.")
+            return
+
+    # --- منطق المستخدمين (الزبائن) ---
+    endpoint = ""
+    title = ""
+    
+    if text == '🆕 أحدث 10 دومينات محذوفة (.com)':
+        endpoint = "expiredcom"
+        title = "🆕 أحدث دومينات .com المحذوفة"
+    elif text == '⏳ دومينات ستنتهي قريباً':
+        endpoint = "pendingdelete"
+        title = "⏳ دومينات في مرحلة الحذف القريب"
+
+    if endpoint:
+        msg = await update.message.reply_text("⏳ جاري جلب البيانات من الحساب الخاص...")
+        data = fetch_domains_from_account(endpoint)
+        
+        if isinstance(data, str): # في حالة وجود خطأ
+            await msg.edit_text(data)
+        else:
+            report = f"🎯 **{title}:**\n\n"
+            for item in data:
+                report += f"🌐 `{item['domain']}`\n🔗 BL: `{item['bl']}` | 📅 `{item['status']}`\n\n"
+            await msg.edit_text(report, parse_mode='Markdown')
+
+if __name__ == "__main__":
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
+    print("Bot is running on Railway...")
+    app.run_polling()
