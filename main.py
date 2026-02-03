@@ -10,60 +10,73 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# هيدرز لمحاكاة متصفح حقيقي لجلب البيانات من DomCop
+# هيدرز متقدمة لمحاكاة متصفح حقيقي
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
+    'Referer': 'https://www.domcop.com/'
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [['🎯 جلب الدومينات المنتهية الآن']]
+    # تغيير اسم الزر كما طلبت
+    kb = [['domcop']]
     await update.message.reply_text(
-        "📊 **بوت رصد الدومينات القوية**\nسأقوم بجلب الدومينات مع الروابط الخلفية والوقت المتبقي كما في الصورة.",
+        "🚀 **قناص DomCop الحي**\nاضغط على الزر بالأسفل لجلب أحدث الدومينات المنتهية الآن.",
         reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
     )
 
-async def fetch_domcop_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    m = await update.message.reply_text("🔎 جاري سحب البيانات وتحليل الروابط الخلفية...")
+async def fetch_live_domcop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    m = await update.message.reply_text("🔎 جاري فحص DomCop وسحب أحدث القوائم...")
     
-    # استخدام رابط القسم المفتوح في DomCop (أو محاكاة الفلتر الخاص به)
+    # رابط الصفحة التي تحتوي على الدومينات المنتهية (Expired)
     url = "https://www.domcop.com/domains/expired-domains/"
     
     try:
         response = requests.get(url, headers=HEADERS, timeout=20)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # البحث عن جدول الدومينات - ملاحظة: الأكواد البرمجية هنا تحاكي هيكل الجدول
-        # سنقوم هنا بعرض عينة برمجية لكيفية عرض البيانات كما طلبت في الصورة
+        # البحث عن جدول الدومينات (الوسم المعتاد في DomCop هو جدول بمعرف معين)
+        table = soup.find('table', {'id': 'expired-domains-table'}) or soup.find('table')
         
-        # لنفترض أننا سحبنا هذه البيانات (محاكاة للنتائج الحقيقية من الموقع):
-        results = [
-            {"name": "sweetsoul.com", "tf": "27", "time": "1h 10m", "bl": "145"},
-            {"name": "pgfweb.com", "tf": "15", "time": "1h 10m", "bl": "89"},
-            {"name": "tgamers.com", "tf": "16", "time": "1h 10m", "bl": "30"},
-            {"name": "dawnglobal.net", "tf": "17", "time": "2h 10m", "bl": "210"}
-        ]
+        if not table:
+            await m.edit_text("⚠️ لم أتمكن من سحب الجدول حالياً. قد يكون الموقع قام بتحديث حمايته أو الصفحة فارغة.")
+            return
+
+        rows = table.find_all('tr')[1:11] # جلب أول 10 صفوف حقيقية
         
-        report = "🎯 **أقوى الدومينات المتاحة (بيانات كاملة):**\n\n"
+        if not rows:
+            await m.edit_text("📭 لا توجد دومينات جديدة معروضة حالياً.")
+            return
+
+        report = "🎯 **أحدث الدومينات المستخرجة من DomCop:**\n\n"
         
-        for item in results:
-            # عرض البيانات بشكل احترافي ومنظم
-            report += (
-                f"🌐 **Domain:** `{item['name']}`\n"
-                f"🚀 **Majestic TF:** `{item['tf']}`\n"
-                f"🔗 **Backlinks:** `{item['bl']}`\n"
-                f"⏳ **Expires in:** `{item['time']}`\n"
-                f"---------------------------\n"
-            )
+        for row in rows:
+            cols = row.find_all('td')
+            if len(cols) >= 5:
+                # استخراج البيانات بناءً على ترتيب الأعمدة في DomCop
+                domain = cols[0].get_text(strip=True)
+                tf = cols[1].get_text(strip=True) # Trust Flow
+                bl = cols[2].get_text(strip=True) # Backlinks
+                da = cols[3].get_text(strip=True) # Domain Authority
+                time_left = cols[-1].get_text(strip=True) # الوقت المتبقي
+
+                report += (
+                    f"🌐 **Domain:** `{domain}`\n"
+                    f"🚀 **TF:** `{tf}` | 📊 **DA:** `{da}`\n"
+                    f"🔗 **Backlinks:** `{bl}`\n"
+                    f"⏳ **Ends in:** `{time_left}`\n"
+                    f"---------------------------\n"
+                )
 
         await m.edit_text(report, parse_mode='Markdown')
 
     except Exception as e:
-        await m.edit_text(f"❌ حدث خطأ أثناء جلب البيانات: {str(e)}")
+        logging.error(f"Error: {e}")
+        await m.edit_text("❌ حدث خطأ أثناء الاتصال بالموقع. يرجى المحاولة مرة أخرى لاحقاً.")
 
 if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fetch_domcop_style))
+    app.add_handler(MessageHandler(filters.Text(['domcop']), fetch_live_domcop))
     app.run_polling()
