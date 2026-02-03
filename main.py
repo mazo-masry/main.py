@@ -14,7 +14,7 @@ ADMIN_ID = 665829780
 # قاعدة بيانات المستخدمين
 ALLOWED_USERS = {ADMIN_ID}
 
-# قاموس الكلمات لتوليد البراندات
+# قاموس الكلمات لتوليد البراندات (تم إضافة قسم الخليج)
 BRAND_DATA = {
     "مصانع": ["Mfg", "Fab", "Ind", "Works", "Tech", "Line", "Forge", "Mill"],
     "مطاعم": ["Tasty", "Bite", "Chef", "Dish", "Eats", "Grill", "Foody", "Kitchen"],
@@ -24,23 +24,23 @@ BRAND_DATA = {
     "توصيل": ["Dash", "Drop", "Swift", "Zoom", "Go", "Fetch", "Way"],
     "مستشفيات": ["Med", "Care", "Health", "Cure", "Clinic", "Life", "Heal"],
     "AI": ["AI", "Bot", "Neural", "Mind", "Logic", "Data", "Smart", "IQ"],
-    "نجارة": ["Wood", "Craft", "Timber", "Build", "Oak", "Join", "Saw"]
+    "نجارة": ["Wood", "Craft", "Timber", "Build", "Oak", "Join", "Saw"],
+    "الخليج": ["Dubai", "DXB", "Riyadh", "Najd", "Gulf", "Khaleeji", "Emirates", "Saudi", "Capital", "Elite"]
 }
 
-EXTENSIONS = [".com", ".net", ".ai", ".io", ".live", ".store", ".tech", ".app"]
+EXTENSIONS = [".com", ".net", ".ai", ".io", ".live", ".store", ".tech", ".app", ".ae", ".sa"]
 
 # دالة فحص حقيقية للدومين
 def is_domain_available(domain):
     try:
-        # محاولة حل اسم الدومين عبر DNS
         socket.gethostbyname(domain)
-        return False  # محجوز (Taken)
+        return False
     except socket.gaierror:
-        return True  # متاح (Available)
+        return True
 
 # دالة توليد الأسماء
 def generate_brand(category):
-    prefixes = ["Alpha", "Global", "Ultra", "Prime", "Next", "Pro", "Smart", "Ever", "Zen"]
+    prefixes = ["Alpha", "Global", "Ultra", "Prime", "Next", "Pro", "Smart", "Ever", "Zen", "Gold", "Royal"]
     base = random.choice(BRAND_DATA.get(category, ["Brand"]))
     suffix = random.choice(BRAND_DATA.get(category, ["Corp"]))
     
@@ -50,7 +50,11 @@ def generate_brand(category):
         f"{base}{random.randint(10, 99)}"
     ]).lower()
     
-    ext = random.choice(EXTENSIONS)
+    # إذا كان القسم هو الخليج، نزيد احتمالية النطاقات المحلية .ae و .sa
+    if category == "الخليج":
+        ext = random.choice([".ae", ".sa", ".com", ".net"])
+    else:
+        ext = random.choice(EXTENSIONS)
     return name + ext
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,6 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ["🏢 مصانع", "🍴 مطاعم", "👕 ملابس"],
         ["📦 تعبئة", "🚚 شحن", "🛵 توصيل"],
         ["🏥 مستشفيات", "🤖 AI", "🔨 نجارة"],
+        ["🇸🇦 الخليج 🇦🇪"], # الزر الجديد المستهدف للإمارات والسعودية
         ["➕ إضافة مستخدم", "➖ حذف مستخدم"]
     ]
     await update.message.reply_text("🚀 **مرحباً بك في محرك توليد البراندات الذكي**\nاختر القسم لتوليد وفحص 10 دومينات فوراً.", 
@@ -97,16 +102,18 @@ async def handle_logic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # معالجة توليد الدومينات
-    category = text.split(" ")[-1] # استخراج اسم القسم من الزر
+    # استخراج اسم القسم (الخليج أو غيره)
+    category = "الخليج" if "الخليج" in text else text.split(" ")[-1]
+    
     if category in BRAND_DATA:
-        m = await update.message.reply_text(f"🧪 جاري توليد وفحص 10 دومينات في قسم {category}...")
+        m = await update.message.reply_text(f"🧪 جاري توليد وفحص 10 دومينات لـ {category}...")
         
         results = []
         attempts = 0
-        while len(results) < 10 and attempts < 50:
+        while len(results) < 10 and attempts < 100:
             domain = generate_brand(category)
-            status = "✅ متاح" if is_domain_available(domain) else "❌ محجوز"
             if domain not in [r[0] for r in results]:
+                status = "✅ متاح" if is_domain_available(domain) else "❌ محجوز"
                 results.append((domain, status))
             attempts += 1
 
@@ -120,5 +127,5 @@ if __name__ == "__main__":
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic))
-    print("AI Brand Generator Started...")
+    print("AI Brand Generator with Gulf Target Started...")
     app.run_polling()
