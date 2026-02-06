@@ -6,8 +6,8 @@ from threading import Thread
 from telebot import types
 
 # --- الإعدادات الأساسية ---
-API_TOKEN = 'ضع_توكن_بوت_تليجرام_هنا'
-ADMIN_ID = 123456789  # ضع هنا الـ ID الخاص بك (الأدمن) لتتحكم في البوت
+API_TOKEN = '8166138523:AAGdGkcpyLTLRSeKeuKD6ofcjOFWSCjSml0'
+ADMIN_ID = 665829780  # ضع هنا الـ ID الخاص بك (الأدمن) لتتحكم في البوت
 
 bot = telebot.TeleBot(API_TOKEN)
 
