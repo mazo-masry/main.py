@@ -1,5 +1,2 @@
-python-telegram-bot
-yt-dlp
-requests
+pyTelegramBotAPI
 python-whois
-flask
