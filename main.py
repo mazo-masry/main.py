@@ -1,25 +1,54 @@
-import telebot
-import whois
-import random
+import os
 import time
+import random
+import whois
+import telebot
 from threading import Thread
+from flask import Flask
 from telebot import types
 
-# --- الإعدادات الأساسية ---
+# --- إعدادات البوت ---
 API_TOKEN = '8166138523:AAGdGkcpyLTLRSeKeuKD6ofcjOFWSCjSml0'
-ADMIN_ID = 665829780  # ضع هنا الـ ID الخاص بك (الأدمن) لتتحكم في البوت
+ADMIN_ID = 665829780  # ضع هنا الـ ID الخاص بك
 
 bot = telebot.TeleBot(API_TOKEN)
+app = Flask('')
 
-# حالات التشغيل
+# --- المتغيرات العامة ---
 running = False
-users = set([ADMIN_ID]) # قائمة المستخدمين المسموح لهم (تبدأ بك)
+users = set([ADMIN_ID])
+scanned_domains = set() # لمنع التكرار نهائياً
 
-# القواميس (تأكد من إضافة كلمات كثيرة هنا لزيادة الاحتمالات)
-words = ['tech', 'smart', 'fast', 'free', 'pro', 'net', 'app', 'soft', 'cloud', 'bolt', 'ai', 'go', 'web']
-exts = ['.com', '.net', '.org', '.io', '.ai']
+# --- قاموس المجالات الضخم (Fashion, AI, Law, Med, Market, RealEstate) ---
+niches = {
+    'fashion': ['cloth', 'fashion', 'style', 'wear', 'vogue', 'trend', 'boutique', 'outfit', 'brand'],
+    'ai_tech': ['ai', 'bot', 'data', 'cloud', 'cyber', 'tech', 'smart', 'neural', 'logic', 'system'],
+    'marketing': ['ads', 'market', 'lead', 'seo', 'growth', 'brand', 'sale', 'promo', 'agency'],
+    'legal': ['law', 'legal', 'judge', 'court', 'firm', 'advocate', 'justice', 'suit', 'case'],
+    'medical': ['med', 'doc', 'clinic', 'health', 'cure', 'care', 'pharma', 'surgery', 'lab'],
+    'realestate': ['home', 'villa', 'estate', 'land', 'rent', 'roof', 'yard', 'place', 'city'],
+    'general': ['hub', 'base', 'flow', 'bit', 'net', 'pro', 'max', 'plus', 'top', 'x']
+}
 
-# --- وظائف الفحص (طبق الأصل من السكربت الناجح) ---
+# --- وظائف التشغيل للسيرفر الوهمي (لحل مشكلة Koyeb) ---
+@app.route('/')
+def home(): return "Bot is Alive!"
+
+def run_flask():
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
+
+# --- وظيفة التوليد والفحص (طبق الأصل من السكربت الناجح) ---
+def generate_domain():
+    cat1 = random.choice(list(niches.keys()))
+    cat2 = random.choice(list(niches.keys()))
+    word1 = random.choice(niches[cat1])
+    word2 = random.choice(niches[cat2])
+    # إضافة لاحقة عشوائية لزيادة التنوع ومنع التكرار
+    suffix = random.choice(['', '2026', 'hub', 'go', 'up', 'now', 'pro'])
+    ext = random.choice(['.com', '.net', '.ai', '.io', '.org'])
+    return f"{word1}{word2}{suffix}{ext}".lower()
+
 def check_status(domain):
     try:
         w = whois.whois(domain)
@@ -36,39 +65,38 @@ def check_status(domain):
         err = str(e).lower()
         if "no match" in err or "not found" in err:
             return "✅ متاح تماماً"
-        return "⚠️ عطل"
+        return "⚠️ عطل مؤقت"
 
-# --- محرك التخمين المستمر ---
+# --- محرك البحث المستمر ---
 def hunting_engine():
     global running
     while True:
         if running:
-            # توليد اسم عشوائي
-            domain = f"{random.choice(words)}{random.choice(words)}{random.choice(exts)}"
-            result = check_status(domain)
-            
-            # إرسال النتائج لكل المستخدمين المضافين
-            if "✅" in result or "💰" in result: # نرسل المتاح والسمسار فقط لتقليل الإزعاج
-                for user_id in users:
-                    try:
-                        bot.send_message(user_id, f"🌐 {domain}\n📊 الحالة: {result}")
-                    except: pass
-            
-        time.sleep(2) # تأخير بسيط لضمان استقرار السيرفر في Render
+            domain = generate_domain()
+            if domain not in scanned_domains:
+                scanned_domains.add(domain)
+                result = check_status(domain)
+                
+                if "✅" in result or "💰" in result:
+                    for user_id in users:
+                        try:
+                            msg = f"🌐 *Domain:* `{domain}`\n📊 *Status:* {result}"
+                            bot.send_message(user_id, msg, parse_mode='Markdown')
+                        except: pass
+                
+                if len(scanned_domains) > 20000: scanned_domains.clear()
+        
+        time.sleep(2.5) # وقت كافي لمنع حظر الـ IP ولضمان استمرار الفحص
 
-# --- لوحة التحكم والزراير ---
+# --- أوامر البوت ولوحة التحكم ---
 @bot.message_handler(commands=['start', 'admin'])
 def admin_panel(message):
     if message.chat.id == ADMIN_ID:
-        markup = types.ReplyKeyboardMarkup(row_width=2)
-        btn1 = types.KeyboardButton('▶️ تشغيل السكربت')
-        btn2 = types.KeyboardButton('🛑 إيقاف السكربت')
-        btn3 = types.KeyboardButton('➕ إضافة مستخدم')
-        btn4 = types.KeyboardButton('➖ حذف مستخدم')
-        markup.add(btn1, btn2, btn3, btn4)
-        bot.send_message(message.chat.id, "🎯 لوحة تحكم القناص:", reply_markup=markup)
+        markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+        markup.add('▶️ تشغيل السكربت', '🛑 إيقاف السكربت', '➕ إضافة مستخدم', '➖ حذف مستخدم')
+        bot.send_message(message.chat.id, "🎯 لوحة تحكم القناص (النسخة النهائية):", reply_markup=markup)
     else:
-        bot.send_message(message.chat.id, "عذراً، هذا البوت خاص بالأدمن فقط.")
+        bot.send_message(message.chat.id, "🚫 عذراً، الوصول للأدمن فقط.")
 
 @bot.message_handler(func=lambda message: True)
 def handle_buttons(message):
@@ -77,33 +105,34 @@ def handle_buttons(message):
 
     if message.text == '▶️ تشغيل السكربت':
         running = True
-        bot.reply_to(message, "🚀 السكربت بدأ يولد ويفحص الآن.. سيتم إرسال النتائج فور إيجادها.")
+        bot.reply_to(message, "🚀 انطلق الوحش! يتم الآن فحص مجالات (الموضة، الطب، القانون، التقنية..)")
     
     elif message.text == '🛑 إيقاف السكربت':
         running = False
         bot.reply_to(message, "🛑 تم إيقاف الفحص.")
     
     elif message.text == '➕ إضافة مستخدم':
-        msg = bot.send_message(message.chat.id, "أرسل الـ ID الخاص بالمستخدم الجديد:")
+        msg = bot.send_message(message.chat.id, "أرسل ID المستخدم الجديد:")
         bot.register_next_step_handler(msg, save_user)
         
     elif message.text == '➖ حذف مستخدم':
-        msg = bot.send_message(message.chat.id, "أرسل الـ ID الذي تريد حذفه:")
+        msg = bot.send_message(message.chat.id, "أرسل ID المستخدم لحذفه:")
         bot.register_next_step_handler(msg, delete_user)
 
 def save_user(message):
     try:
         users.add(int(message.text))
-        bot.send_message(ADMIN_ID, f"✅ تم إضافة المستخدم {message.text}")
-    except: bot.send_message(ADMIN_ID, "❌ خطأ في الـ ID")
+        bot.send_message(ADMIN_ID, f"✅ تمت إضافة {message.text}")
+    except: bot.send_message(ADMIN_ID, "❌ خطأ في الرقم")
 
 def delete_user(message):
     try:
         users.discard(int(message.text))
-        bot.send_message(ADMIN_ID, f"🗑️ تم حذف المستخدم {message.text}")
+        bot.send_message(ADMIN_ID, f"🗑️ تم حذف {message.text}")
     except: bot.send_message(ADMIN_ID, "❌ فشل الحذف")
 
-# تشغيل محرك البحث في خلفية البوت
-Thread(target=hunting_engine).start()
-
-bot.polling(none_stop=True)
+# --- تشغيل الخيوط (Threads) ---
+if __name__ == "__main__":
+    Thread(target=run_flask).start() # تشغيل السيرفر الوهمي
+    Thread(target=hunting_engine).start() # تشغيل محرك البحث
+    bot.polling(none_stop=True)
